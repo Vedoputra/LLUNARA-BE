@@ -167,25 +167,26 @@ handler  →  service  →  repository  →  database
 
 ---
 
-### BE-0.6 — Deploy ke Zeabur
+### BE-0.6 — Deploy ke Vercel
 
-> **Catatan (24 Juli 2026):** Task ini semula ditulis untuk Render. Diganti ke Zeabur karena Render kini mewajibkan kartu kredit saat signup, melanggar constraint zero-budget project ini. Lihat ADR-005 di `PRD.md` Bagian 10.
+> **Catatan (25 Juli 2026):** Task ini ditulis ulang dua kali. Semula Render (dibatalkan: kini wajib kartu kredit, lihat ADR-004), lalu dicoba Zeabur (dibatalkan: dashboard live-nya ternyata mengharuskan beli/bawa server, lihat ADR-005). Sekarang memakai Vercel Hobby plan dengan Go Framework Preset — lihat ADR-006 di `PRD.md` Bagian 10.
 
 **Tujuan:** Membuktikan pipeline deployment berfungsi sejak awal, bukan di akhir project.
 
 **Langkah:**
-1. Daftar akun di [zeabur.com](https://zeabur.com) menggunakan GitHub. Tidak perlu kartu kredit — kalau di titik manapun diminta, berhenti dan konfirmasi dulu sebelum lanjut
-2. Buat Project baru → Add Service → pilih **Deploy from GitHub** → hubungkan ke repository `LLUNARA-BE`
-3. Zeabur otomatis mendeteksi `Dockerfile` di root repo dan memakainya sebagai metode build — tidak perlu setup manual
-4. Set environment variable di dashboard service (nilai database akan diisi setelah BE-1.1): `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_JWT_SECRET`, `ENV=production`
-5. Aplikasi sudah listen pada `os.Getenv("PORT")` dengan default `8080`, dan `Dockerfile` sudah `EXPOSE 8080` — Zeabur membaca port ini secara otomatis, tidak perlu perubahan kode
-6. Auto-deploy dari branch `main` aktif secara default begitu service terhubung ke GitHub — cek di pengaturan service kalau ingin memastikan
-7. Generate domain publik gratis lewat tombol **Generate Domain** di halaman Networking service (format `https://<nama-acak>.zeabur.app`)
+1. Daftar/login di [vercel.com](https://vercel.com) menggunakan GitHub. Tidak perlu kartu kredit untuk Hobby plan — kalau di titik manapun diminta, berhenti dan konfirmasi dulu sebelum lanjut
+2. Pastikan `vercel.json` ada di root repo berisi `{"framework": "go"}` (sudah disiapkan)
+3. Di dashboard Vercel, klik **Add New → Project** → import repository `LLUNARA-BE` dari GitHub
+4. Vercel akan mendeteksi Go Framework Preset lewat `go.mod` + entrypoint `cmd/api/main.go` — biarkan default, jangan ubah build command
+5. Set environment variable di tab **Environment Variables** project (nilai database akan diisi setelah BE-1.1): `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_JWT_SECRET`, `ENV=production`
+6. Aplikasi sudah listen pada `os.Getenv("PORT")` dengan default `8080` — sesuai syarat Go Framework Preset, tidak perlu perubahan kode
+7. Klik **Deploy**. Auto-deploy dari branch `main` aktif otomatis untuk setiap push berikutnya, tanpa setup tambahan
+8. Domain publik gratis otomatis dibuat, format `https://<nama-project>.vercel.app`
 
-**Output:** URL publik, format `https://<nama-service>.zeabur.app`
+**Output:** URL publik, format `https://<nama-project>.vercel.app`
 
 **Selesai jika:**
-- `curl https://<nama-service>.zeabur.app/health` mengembalikan 200
+- `curl https://<nama-project>.vercel.app/health` mengembalikan 200
 - Push ke `main` memicu deploy otomatis
 - Tidak ada metode pembayaran terdaftar di akun
 
@@ -211,7 +212,7 @@ handler  →  service  →  repository  →  database
    - `SUPABASE_ANON_KEY` → nanti dipakai Frontend
    - `SUPABASE_SERVICE_ROLE_KEY` → **hanya** untuk backend
    - `SUPABASE_JWT_SECRET` → untuk verifikasi token
-3. Masukkan nilai-nilai ini ke environment variable Zeabur
+3. Masukkan nilai-nilai ini ke environment variable Vercel
 4. Masukkan ke `.env` lokal (pastikan file ini ada di `.gitignore`)
 
 **Output:** Database aktif dan kredensial tersimpan.
@@ -863,7 +864,7 @@ Implementasi bertahap:
 3. Batas: 100 request per menit per user
 4. Kembalikan 429 dengan header `Retry-After` saat batas terlampaui
 
-**Catatan:** rate limiter berbasis memori sudah memadai karena hanya ada satu instance. Jangan menambahkan Redis — itu berarti layanan berbayar.
+**Catatan:** rate limiter berbasis memori tetap dipakai sebagai perlindungan dasar meski Vercel (ADR-006) bisa menjalankan lebih dari satu instance saat concurrency scaling — akurasi lintas instance tidak 100% terjamin, tapi ini dampaknya dapat diabaikan untuk skala 1–2 pengguna. Jangan menambahkan Redis — itu berarti layanan berbayar.
 
 **Output:** `internal/middleware/rate_limit.go`
 
@@ -883,7 +884,7 @@ Implementasi bertahap:
 
 **Output:** `internal/middleware/logger.go`
 
-**Selesai jika:** Log terbaca di dashboard Zeabur dan tidak mengandung satu pun data sensitif.
+**Selesai jika:** Log terbaca di dashboard Vercel (Runtime Logs) dan tidak mengandung satu pun data sensitif.
 
 ---
 

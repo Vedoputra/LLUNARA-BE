@@ -54,7 +54,8 @@ Detail lengkap ADR ada di `docs/PRD.md` Bagian 10. Ringkasan:
 | ADR-002 | Cloud-only, tanpa local-first / offline database, untuk menghindari kompleksitas sync |
 | ADR-003 | Local notification (`expo-notifications`), bukan push notification server |
 | ADR-004 | *(Digantikan ADR-005)* Awalnya hosting di Render free tier — dibatalkan karena Render kini mewajibkan kartu kredit |
-| ADR-005 | Hosting di Zeabur free plan (genuinely tanpa kartu kredit), menerima trade-off cold start dengan durasi tidak terpublikasi resmi |
+| ADR-005 | *(Digantikan ADR-006)* Rencana pindah ke Zeabur free plan — dibatalkan karena dashboard live-nya ternyata mengharuskan beli/bawa server |
+| ADR-006 | Hosting di Vercel Hobby plan lewat Go Framework Preset (genuinely tanpa kartu kredit, tanpa risiko pay-as-you-go), menerima trade-off cold start serverless dengan durasi tidak terpublikasi resmi |
 
 ## Diagram Arsitektur
 
@@ -79,7 +80,7 @@ Detail lengkap ADR ada di `docs/PRD.md` Bagian 10. Ringkasan:
             │                  │ (JWT verified)
             │                  ▼
             │        ┌──────────────────────┐
-            │        │   Go API (Zeabur)    │
+            │        │   Go API (Vercel)    │
             │        │  ┌────────────────┐  │
             │        │  │ JWT Middleware │  │
             │        │  ├────────────────┤  │

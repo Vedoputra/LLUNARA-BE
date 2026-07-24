@@ -75,7 +75,7 @@ Pencatatan siklus menstruasi umumnya dilakukan secara manual (catatan HP, ingata
 | Solo developer | Scope harus realistis; hindari fitur yang butuh maintenance tinggi |
 | Data kesehatan reproduksi = data sensitif | Keamanan & privasi bukan opsional, harus jadi requirement kelas satu |
 | Supabase free tier auto-pause setelah 7 hari idle | Perlu penanganan UI & mitigasi keep-alive |
-| Zeabur free plan sleep setelah periode idle (lihat ADR-005) | Perlu loading state eksplisit untuk cold start |
+| Vercel Hobby plan dapat cold start setelah idle (lihat ADR-006) | Perlu loading state eksplisit untuk cold start |
 
 ---
 
@@ -315,7 +315,7 @@ Ini adalah aplikasi data kesehatan reproduksi. Keamanan diperlakukan sebagai req
 | Cold start aplikasi | < 3 detik |
 | Response API (server aktif) | < 500 ms untuk operasi CRUD |
 | Kalkulasi insight | < 2 detik untuk data 12 bulan |
-| Cold start backend (Zeabur free plan) | Durasi pasti tidak dipublikasikan resmi oleh Zeabur (dokumentasi mereka hanya menyebut "beberapa detik"); **wajib ditangani dengan loading state eksplisit** sebagai jaring pengaman, asumsikan bisa lebih lama dari perkiraan |
+| Cold start backend (Vercel Hobby plan, Fluid Compute) | Durasi pasti tidak dipublikasikan resmi oleh Vercel; **wajib ditangani dengan loading state eksplisit** sebagai jaring pengaman, asumsikan bisa lebih lama dari perkiraan |
 
 ### 4.3 Reliability
 
@@ -356,7 +356,7 @@ Karena ini menyangkut kesehatan dan citra tubuh, aplikasi harus:
 | **Backend** | Go | Sudah dikuasai developer, performa baik, cocok untuk business logic |
 | **Database** | Supabase (PostgreSQL) | Free tier memadai, RLS bawaan, tidak perlu kartu kredit |
 | **Auth** | Supabase Auth | Terintegrasi dengan RLS, JWT standar |
-| **Hosting BE** | Zeabur (free plan) | Terverifikasi tanpa kartu kredit di dokumentasi resmi, mendukung deploy dari Dockerfile + auto-deploy dari GitHub (lihat ADR-005) |
+| **Hosting BE** | Vercel (Hobby plan, Go Framework Preset) | Tanpa kartu kredit, tanpa risiko pay-as-you-go (Hobby dipause, bukan ditagih), auto-deploy dari GitHub (lihat ADR-006) |
 | **Notifikasi** | `expo-notifications` (local) | Gratis, berfungsi offline, tanpa server |
 | **Repository** | 2 repo terpisah: `llunara-mobile` & `llunara-api` | Pemisahan concern, deployment pipeline independen |
 
@@ -383,7 +383,7 @@ Karena ini menyangkut kesehatan dan citra tubuh, aplikasi harus:
             │                  │ (JWT verified)
             │                  ▼
             │        ┌──────────────────────┐
-            │        │   Go API (Zeabur)    │
+            │        │   Go API (Vercel)    │
             │        │  ┌────────────────┐  │
             │        │  │ JWT Middleware │  │
             │        │  ├────────────────┤  │
@@ -907,7 +907,7 @@ Bagian ini mendokumentasikan keputusan teknis beserta alasannya. Ini penting unt
 
 ### ADR-005 — Zeabur sebagai Pengganti Render untuk Hosting Backend
 
-**Status:** Diterima
+**Status:** Digantikan oleh ADR-006 (25 Juli 2026)
 
 **Konteks:** Render kini mewajibkan pendaftaran kartu kredit di seluruh alur signup-nya, melanggar batasan mutlak "tanpa kartu kredit di layanan manapun" (Bagian 1.1 & 2.3). Riset terhadap alternatif populer (Koyeb, Fly.io, Railway, Google Cloud Run, Oracle Cloud Free Tier) menunjukkan seluruhnya kini juga mewajibkan kartu kredit untuk verifikasi identitas — beberapa bahkan memiliki laporan pengguna tertagih riil akibat kesalahan pemilihan plan saat signup. Zeabur adalah satu-satunya platform yang terverifikasi di dokumentasi resminya sendiri tidak memerlukan kartu kredit sama sekali untuk free plan-nya.
 
@@ -922,13 +922,37 @@ Bagian ini mendokumentasikan keputusan teknis beserta alasannya. Ini penting unt
 
 **Mitigasi:** Tetap pertahankan loading state progresif di frontend sebagai jaring pengaman terlepas dari durasi cold start aktual — desain ini sudah defensif terhadap ketidakpastian waktu cold start dari provider manapun.
 
+**Catatan retrospektif:** Saat percobaan deploy riil, dashboard Zeabur yang aktif (Juli 2026) ternyata mengharuskan setiap proyek terhubung ke sebuah "server" — baik beli dari marketplace cloud provider mereka (berbayar) atau bawa server sendiri (BYOC). Tidak ditemukan jalur deploy container gratis tanpa server berbayar di UI yang live, bertentangan dengan dokumentasi publik mereka yang tampaknya sudah usang. Digantikan oleh ADR-006.
+
+---
+
+### ADR-006 — Vercel (Go Framework Preset) sebagai Pengganti Zeabur untuk Hosting Backend
+
+**Status:** Diterima
+
+**Konteks:** Zeabur, meski terdokumentasi tanpa kartu kredit, ternyata dalam praktiknya (dashboard live per Juli 2026) mengharuskan setiap proyek terhubung ke server berbayar atau BYOC — tidak ada lagi jalur container gratis yang benar-benar tersedia. Dibutuhkan platform yang genuinely gratis, tanpa kartu kredit, dan tanpa risiko pay-as-you-go, yang terverifikasi langsung dari dokumentasi resmi terbaru (bukan artikel pihak ketiga yang mudah usang).
+
+**Keputusan:** Pindah hosting backend ke Vercel Hobby plan, menggunakan **Go Framework Preset** mereka yang mendeteksi `go.mod` + entrypoint `cmd/api/main.go` secara native (bukan lewat Dockerfile). Konfigurasi ditambahkan lewat `vercel.json` (`"framework": "go"`).
+
+**Konsekuensi:**
+- (+) Tidak ada kartu kredit terdaftar untuk Hobby plan
+- (+) Hobby plan tidak memiliki billing cycle — saat kuota bulanan habis, fitur dipause 30 hari lalu reset otomatis, **bukan** ditagih otomatis (dikonfirmasi di `docs/plans/hobby` resmi Vercel)
+- (+) Struktur kode backend yang sudah dibangun di BE-0.1–0.5 (`cmd/api/main.go`, listen di env var `PORT`) sudah cocok dengan syarat Go Framework Preset tanpa restrukturisasi
+- (+) Kuota Hobby (1 juta invocation/bulan, 4 CPU-hours, memori 2 GB, durasi maksimum request 300 detik) jauh melebihi kebutuhan trafik 1–2 pengguna
+- (−) Berjalan di atas model serverless ("Fluid Compute"), bukan proses 24/7 tradisional — tetap ada kemungkinan cold start saat benar-benar idle, durasi pasti tidak dipublikasikan resmi
+- (−) Region default Hobby hanya `iad1` (US East) — tidak sedekat Singapore, menambah latency ke Supabase
+- (−) Hobby plan dibatasi untuk penggunaan non-komersial — sesuai karena project ini memang portfolio personal (Bagian 1.1)
+- (−) Rate limiter in-memory berbasis peta (BE-7.1) tidak konsisten 100% lintas instance saat concurrency scaling terjadi — dampak praktis diabaikan untuk 1–2 pengguna, tapi dicatat sebagai keterbatasan yang diketahui
+
+**Mitigasi:** `Dockerfile` tetap dipertahankan untuk development & testing lokal (`docker build`/`docker run`), meski tidak lagi dipakai jalur deploy utama. Loading state progresif di frontend tetap jadi jaring pengaman cold start, konsisten dengan ADR sebelumnya.
+
 ---
 
 ## 11. Rencana Pengembangan
 
 | Milestone | Cakupan | Deliverable |
 |---|---|---|
-| **M1 — Fondasi** | Setup 2 repo, skema DB + RLS, deploy skeleton Go ke Zeabur, setup Expo | Health check endpoint dapat diakses dari aplikasi |
+| **M1 — Fondasi** | Setup 2 repo, skema DB + RLS, deploy skeleton Go ke Vercel, setup Expo | Health check endpoint dapat diakses dari aplikasi |
 | **M2 — Autentikasi** | Register, login, secure token storage, JWT middleware di Go | User dapat login dan mengakses endpoint terproteksi |
 | **M3 — Core Tracking** | Tampilan kalender, pencatatan periode, log harian, gejala | Fitur pencatatan berfungsi utuh |
 | **M4 — Prediksi** | Algoritma prediksi, tampilan fase siklus, confidence level | Prediksi tampil akurat di kalender |
@@ -944,7 +968,7 @@ Bagian ini mendokumentasikan keputusan teknis beserta alasannya. Ini penting unt
 | Risiko | Dampak | Mitigasi |
 |---|---|---|
 | Supabase project ter-pause karena idle | Aplikasi tidak dapat diakses | Keep-alive via GitHub Actions; error state yang jelas |
-| Cold start Zeabur mengganggu pengalaman | Aplikasi terasa lambat | Loading state eksplisit; data Supabase tampil lebih dulu |
+| Cold start Vercel mengganggu pengalaman | Aplikasi terasa lambat | Loading state eksplisit; data Supabase tampil lebih dulu |
 | Tidak ada automated backup di free tier | Risiko kehilangan data | Fitur export manual; backup berkala ke penyimpanan pribadi |
 | Scope creep pada fitur wellness & edukasi | Project tidak selesai | Prioritas MoSCoW ditegakkan; Could Have dikerjakan paling akhir |
 | Prediksi tidak akurat pada siklus tidak teratur | User kehilangan kepercayaan | Confidence level ditampilkan transparan; deteksi outlier |
@@ -979,7 +1003,7 @@ Teks berikut wajib ditampilkan saat onboarding dan pada halaman insight:
 | Layanan | Perlu Kartu Kredit | Batasan Free Tier | Catatan |
 |---|---|---|---|
 | Supabase | Tidak | 500 MB DB, 5 GB egress, 50.000 MAU, 2 project | Project ter-pause setelah 7 hari idle |
-| Zeabur | Tidak | Free plan; limit resource rinci belum dipublikasikan resmi | Sleep setelah periode idle, wake otomatis saat ada request (lihat ADR-005) |
+| Vercel | Tidak | Hobby plan: 1 juta invocation/bulan, 4 CPU-hours, 2 GB memori, durasi request maks 300 detik | Non-komersial saja; melebihi kuota memause fitur 30 hari, bukan menagih (lihat ADR-006) |
 | Expo EAS Build | Tidak | 15 build Android + 15 build iOS per bulan | Build lokal selalu gratis |
 | GitHub | Tidak | Actions gratis untuk repo publik | Digunakan untuk keep-alive & CI |
 | Android Keystore | Tidak | — | File lokal, di-generate `keytool` atau EAS |

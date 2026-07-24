@@ -16,7 +16,8 @@ RUN apk add --no-cache ca-certificates
 
 COPY --from=builder /out/api /usr/local/bin/api
 
-# Zeabur membaca port ini dari EXPOSE (fallback ke $PORT bila diset) — jangan hardcode di kode.
+# Hanya dipakai untuk development & testing lokal — deploy production memakai
+# Vercel Go Framework Preset (lihat vercel.json), bukan image ini. Jangan hardcode port di kode.
 EXPOSE 8080
 
 ENTRYPOINT ["/usr/local/bin/api"]
