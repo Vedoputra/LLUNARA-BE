@@ -20,6 +20,7 @@ import (
 	"github.com/Vedoputra/LLUNARA-BE/internal/handler"
 	"github.com/Vedoputra/LLUNARA-BE/internal/middleware"
 	"github.com/Vedoputra/LLUNARA-BE/internal/repository"
+	"github.com/Vedoputra/LLUNARA-BE/internal/service"
 )
 
 const version = "0.1.0"
@@ -87,10 +88,17 @@ func newRouter(pool *pgxpool.Pool, jwks keyfunc.Keyfunc) http.Handler {
 
 	r.Get("/health", handleHealth(pool))
 
+	cycleHandler := handler.NewCycleHandler(service.NewCycleService(repository.NewCycleRepository(pool)))
+
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(middleware.Auth(jwks))
 
 		r.Get("/me", handler.HandleMe)
+
+		r.Post("/cycles", cycleHandler.StartCycle)
+		r.Get("/cycles", cycleHandler.ListCycles)
+		r.Patch("/cycles/{id}", cycleHandler.UpdateCycle)
+		r.Delete("/cycles/{id}", cycleHandler.DeleteCycle)
 	})
 
 	return r

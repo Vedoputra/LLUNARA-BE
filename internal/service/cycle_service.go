@@ -52,6 +52,15 @@ func daysBetween(a, b time.Time) int {
 	return int(truncateToDate(b).Sub(truncateToDate(a)).Hours() / 24)
 }
 
+// ListCycles returns the user's cycle history, most recent first.
+func (s *CycleService) ListCycles(ctx context.Context, userID uuid.UUID) ([]model.Cycle, error) {
+	cycles, err := s.repo.ListByUser(ctx, userID, 100)
+	if err != nil {
+		return nil, fmt.Errorf("list cycles: %w", err)
+	}
+	return cycles, nil
+}
+
 // StartCycle records a new period start date. If the user has a previous
 // cycle that hasn't been closed yet (its cycle_length is still unknown),
 // starting a new one is what closes it: its cycle_length becomes the gap to
