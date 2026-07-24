@@ -324,19 +324,19 @@ Buat `migrations/002_rls_policies.sql`:
 
 ### BE-1.6 — GitHub Action Keep-Alive
 
+**Status (25 Juli 2026): Otomasi cron-nya sengaja dilewati atas keputusan developer** — project ini personal, jadi keep-alive dilakukan manual (buka `/health` sesekali) alih-alih dijadwalkan otomatis. Bisa diaktifkan lagi kapan saja nanti kalau dirasa perlu.
+
 **Tujuan:** Mencegah Supabase project ter-pause karena tidak aktif selama 7 hari.
 
-**Langkah:**
+**Yang tetap dikerjakan:** `/health` (BE-0.4) sudah diperbarui agar benar-benar menyentuh database (`SELECT 1` lewat pool), bukan sekadar JSON statis — bagian ini tetap berguna terlepas dari cron, karena berarti membuka `/health` secara manual pun sudah cukup untuk menghitung sebagai aktivitas Supabase.
+
+**Langkah (kalau nanti ingin diaktifkan):**
 1. Buat `.github/workflows/keep-alive.yml`
 2. Jadwalkan cron setiap 3 hari
-3. Isi job: melakukan HTTP request sederhana ke endpoint `/health` backend, yang di dalamnya melakukan satu query ringan ke database (`SELECT 1`)
+3. Isi job: melakukan HTTP request sederhana ke endpoint `/health` backend
 4. Tambahkan `workflow_dispatch` agar bisa dijalankan manual
 
-**Output:** `.github/workflows/keep-alive.yml`
-
-**Selesai jika:** Workflow berhasil dijalankan manual dan mengembalikan status sukses.
-
-> **Catatan:** `/health` harus benar-benar menyentuh database, bukan sekadar mengembalikan JSON statis. Kalau tidak, Supabase tetap menganggap project idle.
+**Selesai jika (saat diaktifkan):** Workflow berhasil dijalankan manual dan mengembalikan status sukses.
 
 ---
 
