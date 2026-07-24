@@ -2,21 +2,71 @@ package middleware
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/MicahParks/jwkset"
+	"github.com/MicahParks/keyfunc/v3"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
 
-const testSecret = "test-secret-for-unit-tests-only"
+const testKID = "test-kid"
 
-func makeToken(t *testing.T, secret string, claims jwt.MapClaims) string {
+// newTestJWKS starts an httptest server serving a JWKS containing pub, and
+// returns a keyfunc.Keyfunc fetching from it — the same shape Auth uses
+// against Supabase's real JWKS endpoint in production.
+func newTestJWKS(t *testing.T, pub *ecdsa.PublicKey) keyfunc.Keyfunc {
 	t.Helper()
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signed, err := token.SignedString([]byte(secret))
+
+	jwk, err := jwkset.NewJWKFromKey(pub, jwkset.JWKOptions{
+		Metadata: jwkset.JWKMetadataOptions{KID: testKID, ALG: jwkset.AlgES256},
+	})
+	if err != nil {
+		t.Fatalf("build jwk: %v", err)
+	}
+
+	body, err := json.Marshal(jwkset.JWKSMarshal{Keys: []jwkset.JWKMarshal{jwk.Marshal()}})
+	if err != nil {
+		t.Fatalf("marshal jwks: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	k, err := keyfunc.NewDefaultCtx(ctx, []string{srv.URL})
+	if err != nil {
+		t.Fatalf("create keyfunc: %v", err)
+	}
+	return k
+}
+
+func genKey(t *testing.T) *ecdsa.PrivateKey {
+	t.Helper()
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	return priv
+}
+
+func makeToken(t *testing.T, priv *ecdsa.PrivateKey, kid string, claims jwt.MapClaims) string {
+	t.Helper()
+	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	token.Header["kid"] = kid
+	signed, err := token.SignedString(priv)
 	if err != nil {
 		t.Fatalf("sign token: %v", err)
 	}
@@ -32,10 +82,10 @@ func validClaims(sub string) jwt.MapClaims {
 	}
 }
 
-func runAuth(t *testing.T, secret, authHeader string) (*httptest.ResponseRecorder, bool) {
+func runAuth(t *testing.T, jwks keyfunc.Keyfunc, authHeader string) (*httptest.ResponseRecorder, bool) {
 	t.Helper()
 	passed := false
-	handler := Auth(secret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := Auth(jwks)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		passed = true
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -50,6 +100,9 @@ func runAuth(t *testing.T, secret, authHeader string) (*httptest.ResponseRecorde
 }
 
 func TestAuth_RejectsMissingOrGarbageTokens(t *testing.T) {
+	priv := genKey(t)
+	jwks := newTestJWKS(t, &priv.PublicKey)
+
 	tests := []struct {
 		name       string
 		authHeader string
@@ -62,7 +115,7 @@ func TestAuth_RejectsMissingOrGarbageTokens(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rec, passed := runAuth(t, testSecret, tt.authHeader)
+			rec, passed := runAuth(t, jwks, tt.authHeader)
 			if rec.Code != http.StatusUnauthorized {
 				t.Errorf("status = %d, want 401", rec.Code)
 			}
@@ -74,62 +127,28 @@ func TestAuth_RejectsMissingOrGarbageTokens(t *testing.T) {
 }
 
 func TestAuth_RejectsInvalidClaims(t *testing.T) {
+	priv := genKey(t)
+	jwks := newTestJWKS(t, &priv.PublicKey)
 	userID := uuid.New()
 
 	tests := []struct {
 		name   string
 		mutate func(jwt.MapClaims)
-		secret string // secret used to sign; empty means testSecret
 	}{
-		{
-			name:   "signed with wrong secret",
-			mutate: func(c jwt.MapClaims) {},
-			secret: "a-completely-different-secret",
-		},
-		{
-			name: "expired token",
-			mutate: func(c jwt.MapClaims) {
-				c["exp"] = time.Now().Add(-time.Hour).Unix()
-			},
-		},
-		{
-			name: "wrong audience",
-			mutate: func(c jwt.MapClaims) {
-				c["aud"] = "anon"
-			},
-		},
-		{
-			name: "missing audience",
-			mutate: func(c jwt.MapClaims) {
-				delete(c, "aud")
-			},
-		},
-		{
-			name: "subject is not a uuid",
-			mutate: func(c jwt.MapClaims) {
-				c["sub"] = "not-a-uuid"
-			},
-		},
-		{
-			name: "missing subject",
-			mutate: func(c jwt.MapClaims) {
-				delete(c, "sub")
-			},
-		},
+		{"expired token", func(c jwt.MapClaims) { c["exp"] = time.Now().Add(-time.Hour).Unix() }},
+		{"wrong audience", func(c jwt.MapClaims) { c["aud"] = "anon" }},
+		{"missing audience", func(c jwt.MapClaims) { delete(c, "aud") }},
+		{"subject is not a uuid", func(c jwt.MapClaims) { c["sub"] = "not-a-uuid" }},
+		{"missing subject", func(c jwt.MapClaims) { delete(c, "sub") }},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			claims := validClaims(userID.String())
 			tt.mutate(claims)
+			token := makeToken(t, priv, testKID, claims)
 
-			signSecret := tt.secret
-			if signSecret == "" {
-				signSecret = testSecret
-			}
-			token := makeToken(t, signSecret, claims)
-
-			rec, passed := runAuth(t, testSecret, "Bearer "+token)
+			rec, passed := runAuth(t, jwks, "Bearer "+token)
 			if rec.Code != http.StatusUnauthorized {
 				t.Errorf("status = %d, want 401", rec.Code)
 			}
@@ -140,30 +159,52 @@ func TestAuth_RejectsInvalidClaims(t *testing.T) {
 	}
 }
 
-func TestAuth_RejectsNoneAlgorithm(t *testing.T) {
-	// alg=none tokens must never be accepted regardless of claims.
-	token := jwt.NewWithClaims(jwt.SigningMethodNone, validClaims(uuid.New().String()))
-	signed, err := token.SignedString(jwt.UnsafeAllowNoneSignatureType)
-	if err != nil {
-		t.Fatalf("sign none-alg token: %v", err)
-	}
+func TestAuth_RejectsTokenSignedByUntrustedKey(t *testing.T) {
+	priv := genKey(t)
+	jwks := newTestJWKS(t, &priv.PublicKey)
 
-	rec, passed := runAuth(t, testSecret, "Bearer "+signed)
+	otherPriv := genKey(t) // never published in the JWKS
+	token := makeToken(t, otherPriv, testKID, validClaims(uuid.New().String()))
+
+	rec, passed := runAuth(t, jwks, "Bearer "+token)
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", rec.Code)
 	}
 	if passed {
-		t.Error("handler should not have been called for alg=none token")
+		t.Error("handler should not have been called for a token signed by an untrusted key")
+	}
+}
+
+func TestAuth_RejectsHS256Token(t *testing.T) {
+	// Guards against algorithm-confusion: even a well-formed token must be
+	// rejected outright if it isn't ES256, regardless of what's in the JWKS.
+	priv := genKey(t)
+	jwks := newTestJWKS(t, &priv.PublicKey)
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, validClaims(uuid.New().String()))
+	signed, err := token.SignedString([]byte("some-secret"))
+	if err != nil {
+		t.Fatalf("sign HS256 token: %v", err)
+	}
+
+	rec, passed := runAuth(t, jwks, "Bearer "+signed)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+	if passed {
+		t.Error("handler should not have been called for an HS256 token")
 	}
 }
 
 func TestAuth_AllowsValidTokenAndSetsUserID(t *testing.T) {
+	priv := genKey(t)
+	jwks := newTestJWKS(t, &priv.PublicKey)
 	userID := uuid.New()
-	token := makeToken(t, testSecret, validClaims(userID.String()))
+	token := makeToken(t, priv, testKID, validClaims(userID.String()))
 
 	var gotUserID uuid.UUID
 	var gotErr error
-	handler := Auth(testSecret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := Auth(jwks)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotUserID, gotErr = GetUserID(r.Context())
 		w.WriteHeader(http.StatusOK)
 	}))

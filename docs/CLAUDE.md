@@ -56,7 +56,7 @@ Expo App ──┬── Supabase (langsung)  → READ sederhana + Auth
 | Bahasa | Go (versi stabil terbaru) |
 | Router | `go-chi/chi/v5` |
 | Database | `jackc/pgx/v5` |
-| JWT | `golang-jwt/jwt/v5` |
+| JWT | `golang-jwt/jwt/v5` + `MicahParks/keyfunc/v3` (verifikasi ES256 via JWKS Supabase, bukan shared secret — lihat BE-2.2) |
 | Validasi | `go-playground/validator/v10` |
 | Logging | `log/slog` (stdlib) |
 | PDF | `johnfercher/maroto/v2` |

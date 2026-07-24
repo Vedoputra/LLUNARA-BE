@@ -33,6 +33,13 @@ func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	cfg.MinConns = 1
 	cfg.MaxConnIdleTime = 5 * time.Minute
 
+	// Supabase's connection pooler (PgBouncer/Supavisor, transaction mode on
+	// port 6543) does not guarantee the same backend across statements, so
+	// pgx's default server-side prepared-statement cache can collide with
+	// "prepared statement already exists" errors. Simple protocol avoids
+	// server-side prepare entirely while still parameterizing queries safely.
+	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("create pool: %w", err)

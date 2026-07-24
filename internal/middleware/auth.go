@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/MicahParks/keyfunc/v3"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 
@@ -20,9 +21,12 @@ type contextKey string
 // request body, query parameters, or custom headers.
 const UserIDKey contextKey = "user_id"
 
-// Auth verifies the Supabase-issued JWT on every request and stores the
-// authenticated user's id in the request context.
-func Auth(jwtSecret string) func(http.Handler) http.Handler {
+// Auth returns middleware that verifies the Supabase-issued JWT on every
+// request against the project's JWKS (Supabase signs session tokens with
+// ES256, not a shared secret) and stores the authenticated user's id in the
+// request context. jwks should be created once at startup — it keeps its
+// own HTTP client and background refresh goroutine.
+func Auth(jwks keyfunc.Keyfunc) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			tokenString, ok := extractBearerToken(r)
@@ -32,9 +36,10 @@ func Auth(jwtSecret string) func(http.Handler) http.Handler {
 			}
 
 			claims := jwt.MapClaims{}
-			_, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (any, error) {
-				return []byte(jwtSecret), nil
-			}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithAudience("authenticated"))
+			_, err := jwt.ParseWithClaims(tokenString, claims, jwks.Keyfunc,
+				jwt.WithValidMethods([]string{"ES256"}),
+				jwt.WithAudience("authenticated"),
+			)
 			if err != nil {
 				slog.Warn("auth: token rejected", "reason", err)
 				apierror.WriteError(w, apierror.Unauthorized(""))

@@ -9,24 +9,24 @@ import (
 
 // Config holds all runtime configuration for the API.
 type Config struct {
-	Port              string
-	Env               string
-	DatabaseURL       string
-	SupabaseURL       string
-	SupabaseJWTSecret string
-	AllowedOrigins    []string
+	Port            string
+	Env             string
+	DatabaseURL     string
+	SupabaseURL     string
+	SupabaseJWKSURL string
+	AllowedOrigins  []string
 }
 
 // Load reads configuration from environment variables. It returns an error
 // if any essential variable is missing — callers must treat this as fatal.
 func Load() (*Config, error) {
 	cfg := &Config{
-		Port:              getEnvDefault("PORT", "8080"),
-		Env:               getEnvDefault("ENV", "development"),
-		DatabaseURL:       os.Getenv("DATABASE_URL"),
-		SupabaseURL:       os.Getenv("SUPABASE_URL"),
-		SupabaseJWTSecret: os.Getenv("SUPABASE_JWT_SECRET"),
-		AllowedOrigins:    splitAndTrim(os.Getenv("ALLOWED_ORIGINS")),
+		Port:            getEnvDefault("PORT", "8080"),
+		Env:             getEnvDefault("ENV", "development"),
+		DatabaseURL:     os.Getenv("DATABASE_URL"),
+		SupabaseURL:     os.Getenv("SUPABASE_URL"),
+		SupabaseJWKSURL: os.Getenv("SUPABASE_JWKS_URL"),
+		AllowedOrigins:  splitAndTrim(os.Getenv("ALLOWED_ORIGINS")),
 	}
 
 	var missing []string
@@ -36,8 +36,8 @@ func Load() (*Config, error) {
 	if cfg.SupabaseURL == "" {
 		missing = append(missing, "SUPABASE_URL")
 	}
-	if cfg.SupabaseJWTSecret == "" {
-		missing = append(missing, "SUPABASE_JWT_SECRET")
+	if cfg.SupabaseJWKSURL == "" {
+		missing = append(missing, "SUPABASE_JWKS_URL")
 	}
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("config: missing required environment variable(s): %s", strings.Join(missing, ", "))

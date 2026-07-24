@@ -10,12 +10,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/MicahParks/keyfunc/v3"
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 
 	"github.com/Vedoputra/LLUNARA-BE/internal/config"
+	"github.com/Vedoputra/LLUNARA-BE/internal/handler"
+	"github.com/Vedoputra/LLUNARA-BE/internal/middleware"
 	"github.com/Vedoputra/LLUNARA-BE/internal/repository"
 )
 
@@ -29,7 +32,10 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
-	startupCtx, cancelStartup := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	startupCtx, cancelStartup := context.WithTimeout(ctx, 10*time.Second)
 	pool, err := repository.NewPool(startupCtx, cfg.DatabaseURL)
 	cancelStartup()
 	if err != nil {
@@ -37,16 +43,20 @@ func main() {
 	}
 	defer pool.Close()
 
-	router := newRouter(pool)
+	// jwks keeps its own HTTP client and background refresh goroutine tied
+	// to ctx, so it stops automatically on shutdown.
+	jwks, err := keyfunc.NewDefaultCtx(ctx, []string{cfg.SupabaseJWKSURL})
+	if err != nil {
+		log.Fatalf("jwks: %v", err)
+	}
+
+	router := newRouter(pool, jwks)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	go func() {
 		slog.Info("server starting", "port", cfg.Port, "env", cfg.Env)
@@ -68,17 +78,19 @@ func main() {
 	slog.Info("server stopped")
 }
 
-func newRouter(pool *pgxpool.Pool) http.Handler {
+func newRouter(pool *pgxpool.Pool, jwks keyfunc.Keyfunc) http.Handler {
 	r := chi.NewRouter()
 
-	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
-	r.Use(middleware.Recoverer)
+	r.Use(chimiddleware.RequestID)
+	r.Use(chimiddleware.RealIP)
+	r.Use(chimiddleware.Recoverer)
 
 	r.Get("/health", handleHealth(pool))
 
 	r.Route("/api/v1", func(r chi.Router) {
-		// Endpoint bisnis didaftarkan di sini seiring fase berikutnya.
+		r.Use(middleware.Auth(jwks))
+
+		r.Get("/me", handler.HandleMe)
 	})
 
 	return r

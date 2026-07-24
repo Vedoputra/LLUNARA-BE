@@ -29,7 +29,9 @@ Setiap task memiliki struktur:
 | Bahasa | Go (versi stabil terbaru) | Sudah dikuasai developer |
 | Router | `github.com/go-chi/chi/v5` | Kompatibel `net/http`, middleware bersih |
 | Database driver | `github.com/jackc/pgx/v5` | Driver Postgres paling matang di Go |
-| JWT | `github.com/golang-jwt/jwt/v5` | Verifikasi token Supabase |
+| JWT | `github.com/golang-jwt/jwt/v5` | Parsing & validasi claim token Supabase |
+| JWKS | `github.com/MicahParks/keyfunc/v3` | Fetch, cache, auto-refresh JWKS — token Supabase ditandatangani ES256, bukan shared secret (lihat BE-2.2) |
+| UUID | `github.com/google/uuid` | Parsing & tipe `user_id` dari klaim `sub` |
 | Validasi | `github.com/go-playground/validator/v10` | Validasi struct berbasis tag |
 | Env loader | `github.com/joho/godotenv` | Hanya untuk development lokal |
 | Logging | `log/slog` (stdlib) | Structured logging tanpa dependency |
@@ -178,7 +180,7 @@ handler  →  service  →  repository  →  database
 2. Pastikan `vercel.json` ada di root repo berisi `{"framework": "go"}` (sudah disiapkan)
 3. Di dashboard Vercel, klik **Add New → Project** → import repository `LLUNARA-BE` dari GitHub
 4. Vercel akan mendeteksi Go Framework Preset lewat `go.mod` + entrypoint `cmd/api/main.go` — biarkan default, jangan ubah build command
-5. Set environment variable di tab **Environment Variables** project (nilai database akan diisi setelah BE-1.1): `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_JWT_SECRET`, `ENV=production`
+5. Set environment variable di tab **Environment Variables** project (nilai database akan diisi setelah BE-1.1): `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_JWKS_URL`, `ENV=production`
 6. Aplikasi sudah listen pada `os.Getenv("PORT")` dengan default `8080` — sesuai syarat Go Framework Preset, tidak perlu perubahan kode
 7. Klik **Deploy**. Auto-deploy dari branch `main` aktif otomatis untuk setiap push berikutnya, tanpa setup tambahan
 8. Domain publik gratis otomatis dibuat, format `https://<nama-project>.vercel.app`
@@ -211,7 +213,7 @@ handler  →  service  →  repository  →  database
    - `SUPABASE_URL`
    - `SUPABASE_PUBLISHABLE_KEY` (nama baru Supabase untuk apa yang dulu disebut `anon key`) → nanti dipakai Frontend
    - `SUPABASE_SECRET_KEY` (nama baru Supabase untuk `service_role key`) → **hanya** untuk backend
-   - `SUPABASE_JWT_SECRET` → untuk verifikasi token. **Catatan (25 Juli 2026):** project Supabase baru default ke JWT signing key asimetris, bukan shared secret. Cari & aktifkan **"Legacy JWT Secret"** di Project Settings → API → JWT Settings untuk tetap dapat nilai ini — dengan begitu BE-2.2 tidak perlu diubah ke verifikasi berbasis JWKS
+   - `SUPABASE_JWKS_URL` → untuk verifikasi token. **Catatan (25 Juli 2026):** sempat dicoba pakai "Legacy JWT Secret" (HS256) dulu, tapi terbukti lewat pengujian nyata bahwa token session Supabase yang sungguhan tetap ditandatangani ES256 — legacy secret itu tidak dipakai untuk sign token. BE-2.2 diimplementasikan dengan verifikasi JWKS/ES256 sejak awal; format URL-nya `<SUPABASE_URL>/auth/v1/.well-known/jwks.json`
 3. Masukkan nilai-nilai ini ke environment variable Vercel
 4. Masukkan ke `.env` lokal (pastikan file ini ada di `.gitignore`)
 
@@ -375,26 +377,29 @@ Buat `migrations/002_rls_policies.sql`:
 
 **Tujuan:** Backend hanya melayani request dari user yang identitasnya terbukti secara kriptografis.
 
+> **Catatan (25 Juli 2026):** Ditulis awal untuk verifikasi HS256 pakai `SUPABASE_JWT_SECRET`. Diuji langsung dengan token asli hasil login Supabase dan ternyata **ditolak** — token session Supabase sungguhan ditandatangani **ES256** (asimetris) lewat JWKS, bukan shared secret. Langkah di bawah sudah direvisi sesuai implementasi final.
+
 **Langkah:**
 1. Buat `internal/middleware/auth.go`
 2. Ambil token dari header `Authorization: Bearer <token>`
-3. Verifikasi signature menggunakan `SUPABASE_JWT_SECRET` (algoritma HS256)
-4. Validasi claim: `exp` (belum kedaluwarsa), `aud` (bernilai `authenticated`)
-5. Ekstrak `sub` sebagai `user_id`
-6. Simpan `user_id` ke request context menggunakan **typed key**, bukan string biasa:
+3. Verifikasi signature ES256 terhadap public key dari `SUPABASE_JWKS_URL` (pakai `github.com/MicahParks/keyfunc/v3` untuk fetch + cache + auto-refresh JWKS; `keyfunc.Keyfunc` dibuat sekali saat startup, bukan per-request)
+4. Batasi algoritma yang diterima ke `ES256` saja (`jwt.WithValidMethods`) untuk mencegah algorithm-confusion attack
+5. Validasi claim: `exp` (belum kedaluwarsa), `aud` (bernilai `authenticated`) — otomatis lewat parser option `jwt.WithAudience`
+6. Ekstrak `sub` sebagai `user_id`, validasi formatnya UUID
+7. Simpan `user_id` ke request context menggunakan **typed key**, bukan string biasa:
    ```go
    type contextKey string
    const UserIDKey contextKey = "user_id"
    ```
-7. Buat helper `GetUserID(ctx context.Context) (uuid.UUID, error)`
-8. Tolak dengan 401 `UNAUTHORIZED` jika token tidak ada, tidak valid, atau kedaluwarsa
+8. Buat helper `GetUserID(ctx context.Context) (uuid.UUID, error)`
+9. Tolak dengan 401 `UNAUTHORIZED` jika token tidak ada, tidak valid, kedaluwarsa, atau `sub` bukan UUID valid
 
 **Output:** `internal/middleware/auth.go`
 
 **Selesai jika:**
 - Request tanpa token → 401
 - Request dengan token asal-asalan → 401
-- Request dengan token valid → lolos, dan `user_id` tersedia di context
+- Request dengan token valid (diuji dengan token asli hasil login Supabase, bukan cuma token buatan sendiri) → lolos, dan `user_id` tersedia di context serta cocok dengan akun yang login
 
 > **Aturan keamanan absolut:** `user_id` **hanya** boleh berasal dari JWT yang sudah diverifikasi. Backend tidak boleh menerima `user_id` dari body request, query parameter, maupun header kustom — dalam kondisi apapun.
 
