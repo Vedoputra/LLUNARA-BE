@@ -16,7 +16,7 @@ RUN apk add --no-cache ca-certificates
 
 COPY --from=builder /out/api /usr/local/bin/api
 
-# Render menyuntikkan $PORT secara dinamis — jangan hardcode.
+# Zeabur membaca port ini dari EXPOSE (fallback ke $PORT bila diset) — jangan hardcode di kode.
 EXPOSE 8080
 
 ENTRYPOINT ["/usr/local/bin/api"]

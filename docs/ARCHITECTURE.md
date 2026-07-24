@@ -42,7 +42,7 @@ Aturan yang wajib dipatuhi:
 
 ## Kenapa `chi`
 
-`go-chi/chi/v5` dipilih karena kompatibel penuh dengan `net/http` standar (tidak mengunci ke abstraksi custom), middleware-nya composable, dan cukup ringan untuk berjalan nyaman di Render free tier (512 MB RAM).
+`go-chi/chi/v5` dipilih karena kompatibel penuh dengan `net/http` standar (tidak mengunci ke abstraksi custom), middleware-nya composable, dan cukup ringan untuk berjalan nyaman di hosting free tier dengan RAM terbatas (lihat ADR-005).
 
 ## Ringkasan Architecture Decision Records
 
@@ -53,7 +53,8 @@ Detail lengkap ADR ada di `docs/PRD.md` Bagian 10. Ringkasan:
 | ADR-001 | Hybrid: Supabase langsung untuk read sederhana, Go API untuk seluruh write & read yang butuh kalkulasi |
 | ADR-002 | Cloud-only, tanpa local-first / offline database, untuk menghindari kompleksitas sync |
 | ADR-003 | Local notification (`expo-notifications`), bukan push notification server |
-| ADR-004 | Hosting di Render free tier, menerima trade-off cold start 30–60 detik demi Rp 0 biaya operasional |
+| ADR-004 | *(Digantikan ADR-005)* Awalnya hosting di Render free tier — dibatalkan karena Render kini mewajibkan kartu kredit |
+| ADR-005 | Hosting di Zeabur free plan (genuinely tanpa kartu kredit), menerima trade-off cold start dengan durasi tidak terpublikasi resmi |
 
 ## Diagram Arsitektur
 
@@ -78,7 +79,7 @@ Detail lengkap ADR ada di `docs/PRD.md` Bagian 10. Ringkasan:
             │                  │ (JWT verified)
             │                  ▼
             │        ┌──────────────────────┐
-            │        │   Go API (Render)    │
+            │        │   Go API (Zeabur)    │
             │        │  ┌────────────────┐  │
             │        │  │ JWT Middleware │  │
             │        │  ├────────────────┤  │

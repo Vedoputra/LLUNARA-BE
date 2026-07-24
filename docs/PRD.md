@@ -75,7 +75,7 @@ Pencatatan siklus menstruasi umumnya dilakukan secara manual (catatan HP, ingata
 | Solo developer | Scope harus realistis; hindari fitur yang butuh maintenance tinggi |
 | Data kesehatan reproduksi = data sensitif | Keamanan & privasi bukan opsional, harus jadi requirement kelas satu |
 | Supabase free tier auto-pause setelah 7 hari idle | Perlu penanganan UI & mitigasi keep-alive |
-| Render free tier sleep setelah 15 menit idle | Perlu loading state eksplisit untuk cold start |
+| Zeabur free plan sleep setelah periode idle (lihat ADR-005) | Perlu loading state eksplisit untuk cold start |
 
 ---
 
@@ -315,7 +315,7 @@ Ini adalah aplikasi data kesehatan reproduksi. Keamanan diperlakukan sebagai req
 | Cold start aplikasi | < 3 detik |
 | Response API (server aktif) | < 500 ms untuk operasi CRUD |
 | Kalkulasi insight | < 2 detik untuk data 12 bulan |
-| Cold start backend (Render free tier) | 30–60 detik — **wajib ditangani dengan loading state eksplisit** |
+| Cold start backend (Zeabur free plan) | Durasi pasti tidak dipublikasikan resmi oleh Zeabur (dokumentasi mereka hanya menyebut "beberapa detik"); **wajib ditangani dengan loading state eksplisit** sebagai jaring pengaman, asumsikan bisa lebih lama dari perkiraan |
 
 ### 4.3 Reliability
 
@@ -356,7 +356,7 @@ Karena ini menyangkut kesehatan dan citra tubuh, aplikasi harus:
 | **Backend** | Go | Sudah dikuasai developer, performa baik, cocok untuk business logic |
 | **Database** | Supabase (PostgreSQL) | Free tier memadai, RLS bawaan, tidak perlu kartu kredit |
 | **Auth** | Supabase Auth | Terintegrasi dengan RLS, JWT standar |
-| **Hosting BE** | Render (free tier) | Tanpa kartu kredit, mendukung Go, suspend bukan tagih saat limit tercapai |
+| **Hosting BE** | Zeabur (free plan) | Terverifikasi tanpa kartu kredit di dokumentasi resmi, mendukung deploy dari Dockerfile + auto-deploy dari GitHub (lihat ADR-005) |
 | **Notifikasi** | `expo-notifications` (local) | Gratis, berfungsi offline, tanpa server |
 | **Repository** | 2 repo terpisah: `llunara-mobile` & `llunara-api` | Pemisahan concern, deployment pipeline independen |
 
@@ -383,7 +383,7 @@ Karena ini menyangkut kesehatan dan citra tubuh, aplikasi harus:
             │                  │ (JWT verified)
             │                  ▼
             │        ┌──────────────────────┐
-            │        │   Go API (Render)    │
+            │        │   Go API (Zeabur)    │
             │        │  ┌────────────────┐  │
             │        │  │ JWT Middleware │  │
             │        │  ├────────────────┤  │
@@ -817,11 +817,11 @@ Cek JWT di secure store
    └── Valid
         │
         ├──► Supabase (langsung): ambil log harian bulan ini  [cepat]
-        │         └──► Render kalender segera
+        │         └──► Tampilkan kalender segera
         │
         └──► Go API: GET /cycles/prediction  [mungkin cold start]
                   │
-                  ├── Response < 3 detik ──► Render prediksi
+                  ├── Response < 3 detik ──► Tampilkan prediksi
                   │
                   └── Response > 3 detik
                             │
@@ -851,7 +851,7 @@ Bagian ini mendokumentasikan keputusan teknis beserta alasannya. Ini penting unt
 
 **Konsekuensi:**
 - (+) Waktu pengembangan lebih singkat; backend Go fokus pada logic bernilai tinggi
-- (+) Beban request ke Render berkurang, mengurangi frekuensi cold start
+- (+) Beban request ke backend berkurang, mengurangi frekuensi cold start
 - (−) Terdapat dua jalur akses data yang harus dijaga konsistensinya
 - (−) Keamanan diberlakukan di dua tempat (RLS dan middleware JWT)
 
@@ -888,7 +888,7 @@ Bagian ini mendokumentasikan keputusan teknis beserta alasannya. Ini penting unt
 
 ### ADR-004 — Render Free Tier untuk Hosting Backend
 
-**Status:** Diterima
+**Status:** Digantikan oleh ADR-005 (24 Juli 2026)
 
 **Konteks:** Membutuhkan hosting Go tanpa kartu kredit dan tanpa risiko tagihan tak terduga.
 
@@ -901,13 +901,34 @@ Bagian ini mendokumentasikan keputusan teknis beserta alasannya. Ini penting unt
 
 **Mitigasi:** Loading state eksplisit di frontend. Cold start diperlakukan sebagai perilaku yang diketahui dan ditangani, bukan disembunyikan.
 
+**Catatan retrospektif:** Ternyata Render kini mewajibkan kartu kredit saat pendaftaran, melanggar constraint utama project ini (Bagian 2.3). Digantikan oleh ADR-005.
+
+---
+
+### ADR-005 — Zeabur sebagai Pengganti Render untuk Hosting Backend
+
+**Status:** Diterima
+
+**Konteks:** Render kini mewajibkan pendaftaran kartu kredit di seluruh alur signup-nya, melanggar batasan mutlak "tanpa kartu kredit di layanan manapun" (Bagian 1.1 & 2.3). Riset terhadap alternatif populer (Koyeb, Fly.io, Railway, Google Cloud Run, Oracle Cloud Free Tier) menunjukkan seluruhnya kini juga mewajibkan kartu kredit untuk verifikasi identitas — beberapa bahkan memiliki laporan pengguna tertagih riil akibat kesalahan pemilihan plan saat signup. Zeabur adalah satu-satunya platform yang terverifikasi di dokumentasi resminya sendiri tidak memerlukan kartu kredit sama sekali untuk free plan-nya.
+
+**Keputusan:** Pindah hosting backend dari Render ke Zeabur free plan. Deploy tetap menggunakan `Dockerfile` yang sama (Zeabur mendukung deploy dari Dockerfile + auto-deploy dari GitHub, sehingga tidak ada perubahan kode aplikasi yang diperlukan).
+
+**Konsekuensi:**
+- (+) Tidak ada kartu kredit terdaftar di titik manapun, sesuai constraint utama project
+- (+) Deployment langsung dari GitHub dengan auto-deploy on push, sama seperti rencana semula
+- (+) Tidak perlu perubahan pada `Dockerfile` — Zeabur membaca port dari instruksi `EXPOSE` atau env var `PORT`, sama seperti asumsi awal untuk Render
+- (−) Durasi cold start pasti tidak dipublikasikan resmi oleh Zeabur (dokumentasi mereka hanya menyebut "beberapa detik" setelah idle) — kurang presisi dibanding Render yang eksplisit 30–60 detik
+- (−) Region terbatas sesuai ketersediaan free plan Zeabur, kemungkinan tidak sedekat Singapore dibanding Render
+
+**Mitigasi:** Tetap pertahankan loading state progresif di frontend sebagai jaring pengaman terlepas dari durasi cold start aktual — desain ini sudah defensif terhadap ketidakpastian waktu cold start dari provider manapun.
+
 ---
 
 ## 11. Rencana Pengembangan
 
 | Milestone | Cakupan | Deliverable |
 |---|---|---|
-| **M1 — Fondasi** | Setup 2 repo, skema DB + RLS, deploy skeleton Go ke Render, setup Expo | Health check endpoint dapat diakses dari aplikasi |
+| **M1 — Fondasi** | Setup 2 repo, skema DB + RLS, deploy skeleton Go ke Zeabur, setup Expo | Health check endpoint dapat diakses dari aplikasi |
 | **M2 — Autentikasi** | Register, login, secure token storage, JWT middleware di Go | User dapat login dan mengakses endpoint terproteksi |
 | **M3 — Core Tracking** | Tampilan kalender, pencatatan periode, log harian, gejala | Fitur pencatatan berfungsi utuh |
 | **M4 — Prediksi** | Algoritma prediksi, tampilan fase siklus, confidence level | Prediksi tampil akurat di kalender |
@@ -923,7 +944,7 @@ Bagian ini mendokumentasikan keputusan teknis beserta alasannya. Ini penting unt
 | Risiko | Dampak | Mitigasi |
 |---|---|---|
 | Supabase project ter-pause karena idle | Aplikasi tidak dapat diakses | Keep-alive via GitHub Actions; error state yang jelas |
-| Cold start Render mengganggu pengalaman | Aplikasi terasa lambat | Loading state eksplisit; data Supabase tampil lebih dulu |
+| Cold start Zeabur mengganggu pengalaman | Aplikasi terasa lambat | Loading state eksplisit; data Supabase tampil lebih dulu |
 | Tidak ada automated backup di free tier | Risiko kehilangan data | Fitur export manual; backup berkala ke penyimpanan pribadi |
 | Scope creep pada fitur wellness & edukasi | Project tidak selesai | Prioritas MoSCoW ditegakkan; Could Have dikerjakan paling akhir |
 | Prediksi tidak akurat pada siklus tidak teratur | User kehilangan kepercayaan | Confidence level ditampilkan transparan; deteksi outlier |
@@ -958,7 +979,7 @@ Teks berikut wajib ditampilkan saat onboarding dan pada halaman insight:
 | Layanan | Perlu Kartu Kredit | Batasan Free Tier | Catatan |
 |---|---|---|---|
 | Supabase | Tidak | 500 MB DB, 5 GB egress, 50.000 MAU, 2 project | Project ter-pause setelah 7 hari idle |
-| Render | Tidak | 750 jam/bulan, 512 MB RAM | Sleep setelah 15 menit idle; suspend bukan tagih |
+| Zeabur | Tidak | Free plan; limit resource rinci belum dipublikasikan resmi | Sleep setelah periode idle, wake otomatis saat ada request (lihat ADR-005) |
 | Expo EAS Build | Tidak | 15 build Android + 15 build iOS per bulan | Build lokal selalu gratis |
 | GitHub | Tidak | Actions gratis untuk repo publik | Digunakan untuk keep-alive & CI |
 | Android Keystore | Tidak | — | File lokal, di-generate `keytool` atau EAS |

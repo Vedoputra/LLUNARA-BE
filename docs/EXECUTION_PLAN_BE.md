@@ -167,22 +167,25 @@ handler  →  service  →  repository  →  database
 
 ---
 
-### BE-0.6 — Deploy ke Render
+### BE-0.6 — Deploy ke Zeabur
+
+> **Catatan (24 Juli 2026):** Task ini semula ditulis untuk Render. Diganti ke Zeabur karena Render kini mewajibkan kartu kredit saat signup, melanggar constraint zero-budget project ini. Lihat ADR-005 di `PRD.md` Bagian 10.
 
 **Tujuan:** Membuktikan pipeline deployment berfungsi sejak awal, bukan di akhir project.
 
 **Langkah:**
-1. Daftar akun Render menggunakan GitHub. **Jangan masukkan kartu kredit di titik manapun**
-2. Buat Web Service baru, hubungkan ke repository `llunara-api`
-3. Pilih runtime Docker atau native Go
-4. Set environment variable di dashboard Render (nilai database akan diisi setelah BE-1.1)
-5. Pastikan aplikasi listen pada `os.Getenv("PORT")` — Render menentukan port secara dinamis
-6. Aktifkan auto-deploy dari branch `main`
+1. Daftar akun di [zeabur.com](https://zeabur.com) menggunakan GitHub. Tidak perlu kartu kredit — kalau di titik manapun diminta, berhenti dan konfirmasi dulu sebelum lanjut
+2. Buat Project baru → Add Service → pilih **Deploy from GitHub** → hubungkan ke repository `LLUNARA-BE`
+3. Zeabur otomatis mendeteksi `Dockerfile` di root repo dan memakainya sebagai metode build — tidak perlu setup manual
+4. Set environment variable di dashboard service (nilai database akan diisi setelah BE-1.1): `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_JWT_SECRET`, `ENV=production`
+5. Aplikasi sudah listen pada `os.Getenv("PORT")` dengan default `8080`, dan `Dockerfile` sudah `EXPOSE 8080` — Zeabur membaca port ini secara otomatis, tidak perlu perubahan kode
+6. Auto-deploy dari branch `main` aktif secara default begitu service terhubung ke GitHub — cek di pengaturan service kalau ingin memastikan
+7. Generate domain publik gratis lewat tombol **Generate Domain** di halaman Networking service (format `https://<nama-acak>.zeabur.app`)
 
-**Output:** URL publik, format `https://llunara-api.onrender.com`
+**Output:** URL publik, format `https://<nama-service>.zeabur.app`
 
 **Selesai jika:**
-- `curl https://llunara-api.onrender.com/health` mengembalikan 200
+- `curl https://<nama-service>.zeabur.app/health` mengembalikan 200
 - Push ke `main` memicu deploy otomatis
 - Tidak ada metode pembayaran terdaftar di akun
 
@@ -203,12 +206,12 @@ handler  →  service  →  repository  →  database
 **Langkah:**
 1. Buat project Supabase baru. Pilih region terdekat (Singapore untuk Indonesia)
 2. Simpan kredensial berikut di tempat aman:
-   - `DATABASE_URL` (connection string, gunakan **connection pooler**, bukan direct connection — Render free tier punya keterbatasan koneksi)
+   - `DATABASE_URL` (connection string, gunakan **connection pooler**, bukan direct connection — hosting backend free tier punya keterbatasan koneksi)
    - `SUPABASE_URL`
    - `SUPABASE_ANON_KEY` → nanti dipakai Frontend
    - `SUPABASE_SERVICE_ROLE_KEY` → **hanya** untuk backend
    - `SUPABASE_JWT_SECRET` → untuk verifikasi token
-3. Masukkan nilai-nilai ini ke environment variable Render
+3. Masukkan nilai-nilai ini ke environment variable Zeabur
 4. Masukkan ke `.env` lokal (pastikan file ini ada di `.gitignore`)
 
 **Output:** Database aktif dan kredensial tersimpan.
@@ -304,7 +307,7 @@ Buat `migrations/002_rls_policies.sql`:
 
 **Langkah:**
 1. Buat `internal/repository/postgres.go`
-2. Inisialisasi `pgxpool.Pool` dengan konfigurasi hemat resource (Render free tier hanya 512 MB RAM):
+2. Inisialisasi `pgxpool.Pool` dengan konfigurasi hemat resource (hosting free tier punya RAM terbatas):
    - `MaxConns`: 5
    - `MinConns`: 1
    - `MaxConnIdleTime`: 5 menit
@@ -852,7 +855,7 @@ Implementasi bertahap:
 
 ### BE-7.1 — Rate Limiting
 
-**Tujuan:** Perlindungan dasar dari penyalahgunaan dan pemborosan kuota Render.
+**Tujuan:** Perlindungan dasar dari penyalahgunaan dan pemborosan kuota hosting free tier.
 
 **Langkah:**
 1. Buat `internal/middleware/rate_limit.go`
@@ -880,7 +883,7 @@ Implementasi bertahap:
 
 **Output:** `internal/middleware/logger.go`
 
-**Selesai jika:** Log terbaca di dashboard Render dan tidak mengandung satu pun data sensitif.
+**Selesai jika:** Log terbaca di dashboard Zeabur dan tidak mengandung satu pun data sensitif.
 
 ---
 

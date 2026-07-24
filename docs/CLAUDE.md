@@ -29,7 +29,7 @@ Sebelum mengerjakan sesuatu, periksa dokumen-dokumen ini lebih dulu. Jangan beri
 
 ```
 Expo App ──┬── Supabase (langsung)  → READ sederhana + Auth
-           └── Go API (Render)      → WRITE + kalkulasi
+           └── Go API (Zeabur)      → WRITE + kalkulasi
                     └── Supabase (service role)
 ```
 
@@ -60,7 +60,7 @@ Expo App ──┬── Supabase (langsung)  → READ sederhana + Auth
 | Validasi | `go-playground/validator/v10` |
 | Logging | `log/slog` (stdlib) |
 | PDF | `johnfercher/maroto/v2` |
-| Hosting | Render (free tier) |
+| Hosting | Zeabur (free plan) |
 
 **Frontend (`llunara-mobile`)**
 
@@ -179,7 +179,7 @@ Layar yang hanya menangani loading dan success dianggap **belum selesai**.
 
 ### Penanganan cold start — penting
 
-Backend berjalan di Render free tier dan tidur setelah 15 menit tidak aktif. Request pertama setelah itu membutuhkan **30–60 detik**.
+Backend berjalan di Zeabur free plan dan dapat tidur setelah periode tidak aktif (durasi pasti tidak dipublikasikan resmi oleh Zeabur — dokumentasi mereka hanya menyebut "beberapa detik", tapi jangan diasumsikan selalu cepat).
 
 Konsekuensinya:
 
@@ -187,7 +187,7 @@ Konsekuensinya:
 - `LoadingState` mengubah pesannya secara progresif:
   - 0–5 detik: spinner biasa
   - 5–15 detik: "Menghubungkan ke server…"
-  - Lebih dari 15 detik: "Server sedang aktif kembali, ini biasanya butuh waktu hingga satu menit"
+  - Lebih dari 15 detik: "Server sedang aktif kembali, mohon tunggu sebentar" (angka ini konservatif — anggap sebagai jaring pengaman, bukan durasi cold start Zeabur yang sebenarnya, karena Zeabur tidak mempublikasikan angka resmi)
 - Dashboard menerapkan **pemuatan bertahap**: data dari Supabase tampil lebih dulu (cepat), data dari Go API menyusul dengan skeleton pada bagiannya saja
 - Layar tidak boleh kosong sambil menunggu Go API
 
@@ -284,7 +284,7 @@ Ini bukan bug. Ini konsekuensi sadar dari pilihan arsitektur, dan sudah didokume
 
 | Keterbatasan | Penanganan |
 |---|---|
-| Backend tidur setelah 15 menit idle (Render free tier) | `LoadingState` progresif, timeout 60 detik, pemuatan bertahap |
+| Backend dapat tidur setelah idle (Zeabur free plan) | `LoadingState` progresif, timeout 60 detik, pemuatan bertahap |
 | Supabase project ter-pause setelah 7 hari idle | GitHub Action keep-alive setiap 3 hari |
 | Aplikasi tidak berfungsi offline (cloud-only, lihat ADR-002) | `OfflineBanner`, aksi tulis dinonaktifkan dengan penjelasan |
 | Tidak ada automated backup di free tier | Fitur export manual sebagai cadangan |
