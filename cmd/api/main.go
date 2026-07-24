@@ -94,6 +94,7 @@ func newRouter(pool *pgxpool.Pool, jwks keyfunc.Keyfunc) http.Handler {
 	dailyLogRepo := repository.NewDailyLogRepository(pool)
 	symptomRepo := repository.NewSymptomRepository(pool)
 	dailyLogHandler := handler.NewDailyLogHandler(service.NewDailyLogService(dailyLogRepo, cycleRepo, symptomRepo))
+	symptomHandler := handler.NewSymptomHandler(service.NewSymptomService(symptomRepo))
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(middleware.Auth(jwks))
@@ -108,6 +109,10 @@ func newRouter(pool *pgxpool.Pool, jwks keyfunc.Keyfunc) http.Handler {
 		r.Post("/daily-logs", dailyLogHandler.UpsertLog)
 		r.Get("/daily-logs", dailyLogHandler.ListLogs)
 		r.Delete("/daily-logs/{date}", dailyLogHandler.DeleteLog)
+
+		r.Get("/symptoms", symptomHandler.ListSymptoms)
+		r.Post("/symptoms", symptomHandler.CreateSymptom)
+		r.Delete("/symptoms/{id}", symptomHandler.DeleteSymptom)
 	})
 
 	return r
