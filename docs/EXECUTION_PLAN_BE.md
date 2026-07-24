@@ -209,9 +209,9 @@ handler  →  service  →  repository  →  database
 2. Simpan kredensial berikut di tempat aman:
    - `DATABASE_URL` (connection string, gunakan **connection pooler**, bukan direct connection — hosting backend free tier punya keterbatasan koneksi)
    - `SUPABASE_URL`
-   - `SUPABASE_ANON_KEY` → nanti dipakai Frontend
-   - `SUPABASE_SERVICE_ROLE_KEY` → **hanya** untuk backend
-   - `SUPABASE_JWT_SECRET` → untuk verifikasi token
+   - `SUPABASE_PUBLISHABLE_KEY` (nama baru Supabase untuk apa yang dulu disebut `anon key`) → nanti dipakai Frontend
+   - `SUPABASE_SECRET_KEY` (nama baru Supabase untuk `service_role key`) → **hanya** untuk backend
+   - `SUPABASE_JWT_SECRET` → untuk verifikasi token. **Catatan (25 Juli 2026):** project Supabase baru default ke JWT signing key asimetris, bukan shared secret. Cari & aktifkan **"Legacy JWT Secret"** di Project Settings → API → JWT Settings untuk tetap dapat nilai ini — dengan begitu BE-2.2 tidak perlu diubah ke verifikasi berbasis JWKS
 3. Masukkan nilai-nilai ini ke environment variable Vercel
 4. Masukkan ke `.env` lokal (pastikan file ini ada di `.gitignore`)
 
@@ -219,7 +219,7 @@ handler  →  service  →  repository  →  database
 
 **Selesai jika:** Koneksi ke database berhasil dari lokal, dan tidak ada satu pun key yang ter-commit ke repository.
 
-> **Peringatan keamanan:** `SUPABASE_SERVICE_ROLE_KEY` mem-bypass seluruh Row Level Security. Key ini tidak boleh muncul di kode frontend, log, pesan error, maupun screenshot dokumentasi.
+> **Peringatan keamanan:** `SUPABASE_SECRET_KEY` mem-bypass seluruh Row Level Security. Key ini tidak boleh muncul di kode frontend, log, pesan error, maupun screenshot dokumentasi.
 
 ---
 

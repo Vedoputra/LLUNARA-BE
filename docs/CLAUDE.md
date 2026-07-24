@@ -88,7 +88,7 @@ Ini aplikasi data kesehatan reproduksi. Kesalahan di area ini lebih serius darip
 
 2. **Setiap query di repository wajib memfilter `user_id`.** Backend memakai service role key yang mem-bypass RLS, jadi filter ini adalah satu-satunya lapisan pengaman.
 
-3. **`SUPABASE_SERVICE_ROLE_KEY` hanya boleh berada di environment variable backend.** Tidak boleh muncul di kode frontend, log, pesan error, commit, maupun dokumentasi.
+3. **`SUPABASE_SECRET_KEY` (nama baru Supabase untuk `service_role key`) hanya boleh berada di environment variable backend.** Tidak boleh muncul di kode frontend, log, pesan error, commit, maupun dokumentasi.
 
 4. **Token disimpan di `expo-secure-store`**, tidak pernah di AsyncStorage.
 
