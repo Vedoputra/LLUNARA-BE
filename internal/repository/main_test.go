@@ -21,9 +21,11 @@ import (
 // user_id filter really keep users out of each other's rows?) can only be
 // proven against a real database, not a hand-rolled mock.
 var (
-	testPool   *pgxpool.Pool
-	testUserID uuid.UUID
-	skipTests  bool
+	testPool           *pgxpool.Pool
+	testUserID         uuid.UUID
+	skipTests          bool
+	testSupabaseURL    string
+	testSupabaseSecret string
 )
 
 func TestMain(m *testing.M) {
@@ -32,6 +34,8 @@ func TestMain(m *testing.M) {
 	dbURL := os.Getenv("DATABASE_URL")
 	supabaseURL := os.Getenv("SUPABASE_URL")
 	secretKey := os.Getenv("SUPABASE_SECRET_KEY")
+	testSupabaseURL = supabaseURL
+	testSupabaseSecret = secretKey
 
 	if dbURL == "" || supabaseURL == "" || secretKey == "" {
 		fmt.Println("repository tests: DATABASE_URL/SUPABASE_URL/SUPABASE_SECRET_KEY not set, skipping")
@@ -71,7 +75,25 @@ func skipIfNoDB(t *testing.T) {
 	}
 }
 
+// createTestUser occasionally hits a transient "bad_jwt" 403 from
+// Supabase's admin API when using the newer secret-key auth format — not
+// something in our control, so retry a few times before giving up.
 func createTestUser(supabaseURL, secretKey string) (uuid.UUID, error) {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			time.Sleep(500 * time.Millisecond)
+		}
+		id, err := createTestUserOnce(supabaseURL, secretKey)
+		if err == nil {
+			return id, nil
+		}
+		lastErr = err
+	}
+	return uuid.Nil, lastErr
+}
+
+func createTestUserOnce(supabaseURL, secretKey string) (uuid.UUID, error) {
 	email := fmt.Sprintf("llunara-repo-test-%d@example.com", time.Now().UnixNano())
 	body, _ := json.Marshal(map[string]any{"email": email, "password": "TestPassword123!", "email_confirm": true})
 
