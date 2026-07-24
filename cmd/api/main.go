@@ -15,6 +15,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/Vedoputra/LLUNARA-BE/internal/config"
+	"github.com/Vedoputra/LLUNARA-BE/internal/repository"
 )
 
 const version = "0.1.0"
@@ -26,6 +27,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
+
+	startupCtx, cancelStartup := context.WithTimeout(context.Background(), 10*time.Second)
+	pool, err := repository.NewPool(startupCtx, cfg.DatabaseURL)
+	cancelStartup()
+	if err != nil {
+		log.Fatalf("database: %v", err)
+	}
+	defer pool.Close()
 
 	router := newRouter()
 
