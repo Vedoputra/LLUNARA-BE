@@ -44,7 +44,13 @@ func NewInsightService(cycleRepo cycleRepository, insightRepo insightRepository)
 // insights should degrade gracefully, never fail outright, when history
 // is thin.
 func (s *InsightService) averageLengths(ctx context.Context, userID uuid.UUID) (cycleLength, periodLength int) {
-	cycles, err := s.cycleRepo.ListByUser(ctx, userID, 100)
+	return averageLengthsForUser(ctx, s.cycleRepo, userID)
+}
+
+// averageLengthsForUser is shared by InsightService and ExportService —
+// both need to classify historical days into cycle phases the same way.
+func averageLengthsForUser(ctx context.Context, cycleRepo cycleRepository, userID uuid.UUID) (cycleLength, periodLength int) {
+	cycles, err := cycleRepo.ListByUser(ctx, userID, 100)
 	if err != nil {
 		return fallbackCycleLength, fallbackPeriodLength
 	}

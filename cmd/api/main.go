@@ -102,6 +102,9 @@ func newRouter(pool *pgxpool.Pool, jwks keyfunc.Keyfunc) http.Handler {
 	wellnessRepo := repository.NewWellnessRepository(pool)
 	wellnessHandler := handler.NewWellnessHandler(service.NewWellnessService(wellnessRepo))
 
+	exportRepo := repository.NewExportRepository(pool)
+	exportHandler := handler.NewExportHandler(service.NewExportService(exportRepo, wellnessRepo, cycleRepo))
+
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(middleware.Auth(jwks))
 
@@ -127,6 +130,8 @@ func newRouter(pool *pgxpool.Pool, jwks keyfunc.Keyfunc) http.Handler {
 
 		r.Post("/wellness", wellnessHandler.UpsertLog)
 		r.Get("/wellness", wellnessHandler.ListLogs)
+
+		r.Post("/export", exportHandler.Export)
 	})
 
 	return r
