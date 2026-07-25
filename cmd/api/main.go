@@ -19,6 +19,7 @@ import (
 	"github.com/Vedoputra/LLUNARA-BE/internal/config"
 	"github.com/Vedoputra/LLUNARA-BE/internal/handler"
 	"github.com/Vedoputra/LLUNARA-BE/internal/middleware"
+	"github.com/Vedoputra/LLUNARA-BE/internal/pkg/supabaseadmin"
 	"github.com/Vedoputra/LLUNARA-BE/internal/repository"
 	"github.com/Vedoputra/LLUNARA-BE/internal/service"
 )
@@ -51,7 +52,7 @@ func main() {
 		log.Fatalf("jwks: %v", err)
 	}
 
-	router := newRouter(pool, jwks)
+	router := newRouter(pool, jwks, cfg)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
@@ -79,7 +80,7 @@ func main() {
 	slog.Info("server stopped")
 }
 
-func newRouter(pool *pgxpool.Pool, jwks keyfunc.Keyfunc) http.Handler {
+func newRouter(pool *pgxpool.Pool, jwks keyfunc.Keyfunc, cfg *config.Config) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(chimiddleware.RequestID)
@@ -105,6 +106,10 @@ func newRouter(pool *pgxpool.Pool, jwks keyfunc.Keyfunc) http.Handler {
 
 	exportRepo := repository.NewExportRepository(pool)
 	exportHandler := handler.NewExportHandler(service.NewExportService(exportRepo, wellnessRepo, cycleRepo, insightService))
+
+	accountRepo := repository.NewAccountRepository(pool)
+	authAdminClient := supabaseadmin.NewClient(cfg.SupabaseURL, cfg.SupabaseSecretKey)
+	accountHandler := handler.NewAccountHandler(service.NewAccountService(accountRepo, authAdminClient))
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(middleware.Auth(jwks))
@@ -133,6 +138,8 @@ func newRouter(pool *pgxpool.Pool, jwks keyfunc.Keyfunc) http.Handler {
 		r.Get("/wellness", wellnessHandler.ListLogs)
 
 		r.Post("/export", exportHandler.Export)
+
+		r.Delete("/account", accountHandler.DeleteAccount)
 	})
 
 	return r
