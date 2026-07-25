@@ -34,6 +34,7 @@ type CycleLengthPoint struct {
 // CycleSummary is the aggregated result of GET /api/v1/insights/summary.
 type CycleSummary struct {
 	HasSufficientData   bool
+	Message             string
 	AverageCycleLength  float64
 	ShortestCycle       int
 	LongestCycle        int
@@ -64,6 +65,7 @@ type CycleSummaryResponse struct {
 func (s CycleSummary) ToResponse() CycleSummaryResponse {
 	resp := CycleSummaryResponse{
 		HasSufficientData: s.HasSufficientData,
+		Message:           s.Message,
 		TotalCycles:       s.TotalCycles,
 	}
 	if !s.HasSufficientData {
@@ -95,81 +97,113 @@ func (s CycleSummary) ToResponse() CycleSummaryResponse {
 	return resp
 }
 
-// SymptomFrequency is one entry in GET /api/v1/insights/symptoms — how often
-// a symptom was logged, ranked from most to least frequent.
-type SymptomFrequency struct {
-	SymptomID  uuid.UUID
-	Name       string
-	Count      int
-	SampleSize int
+// SymptomInsight aggregates one symptom's occurrence pattern over the
+// requested window: how often it was logged, which cycle phases it
+// appeared in, and which day of the cycle it most commonly showed up on.
+type SymptomInsight struct {
+	SymptomID          uuid.UUID
+	Name               string
+	Count              int
+	PhaseDistribution  map[Phase]int
+	MostCommonCycleDay *int
+	SampleSize         int
 }
 
-type SymptomFrequencyResponse struct {
-	SymptomID  string `json:"symptom_id"`
-	Name       string `json:"name"`
-	Count      int    `json:"count"`
-	SampleSize int    `json:"sample_size"`
+type SymptomInsightResponse struct {
+	SymptomID          string         `json:"symptom_id"`
+	Name               string         `json:"name"`
+	Count              int            `json:"count"`
+	PhaseDistribution  map[string]int `json:"phase_distribution"`
+	MostCommonCycleDay *int           `json:"most_common_cycle_day,omitempty"`
+	SampleSize         int            `json:"sample_size"`
 }
 
-func (f SymptomFrequency) ToResponse() SymptomFrequencyResponse {
-	return SymptomFrequencyResponse{
-		SymptomID:  f.SymptomID.String(),
-		Name:       f.Name,
-		Count:      f.Count,
-		SampleSize: f.SampleSize,
-	}
-}
-
-// SymptomPhaseDistribution shows how often a symptom occurs in each cycle
-// phase.
-type SymptomPhaseDistribution struct {
-	SymptomID  uuid.UUID
-	Name       string
-	ByPhase    map[Phase]int
-	SampleSize int
-}
-
-type SymptomPhaseDistributionResponse struct {
-	SymptomID  string         `json:"symptom_id"`
-	Name       string         `json:"name"`
-	ByPhase    map[string]int `json:"by_phase"`
-	SampleSize int            `json:"sample_size"`
-}
-
-func (d SymptomPhaseDistribution) ToResponse() SymptomPhaseDistributionResponse {
-	byPhase := make(map[string]int, len(d.ByPhase))
-	for phase, count := range d.ByPhase {
+func (si SymptomInsight) ToResponse() SymptomInsightResponse {
+	byPhase := make(map[string]int, len(si.PhaseDistribution))
+	for phase, count := range si.PhaseDistribution {
 		byPhase[string(phase)] = count
 	}
-	return SymptomPhaseDistributionResponse{
-		SymptomID:  d.SymptomID.String(),
-		Name:       d.Name,
-		ByPhase:    byPhase,
-		SampleSize: d.SampleSize,
+	return SymptomInsightResponse{
+		SymptomID:          si.SymptomID.String(),
+		Name:               si.Name,
+		Count:              si.Count,
+		PhaseDistribution:  byPhase,
+		MostCommonCycleDay: si.MostCommonCycleDay,
+		SampleSize:         si.SampleSize,
+	}
+}
+
+// SymptomInsights is the full result of GET /api/v1/insights/symptoms,
+// symptoms already ranked most to least frequent.
+type SymptomInsights struct {
+	Symptoms   []SymptomInsight
+	Months     int
+	SampleSize int
+}
+
+type SymptomInsightsResponse struct {
+	Symptoms   []SymptomInsightResponse `json:"symptoms"`
+	Months     int                      `json:"months"`
+	SampleSize int                      `json:"sample_size"`
+}
+
+func (si SymptomInsights) ToResponse() SymptomInsightsResponse {
+	symptoms := make([]SymptomInsightResponse, len(si.Symptoms))
+	for i, s := range si.Symptoms {
+		symptoms[i] = s.ToResponse()
+	}
+	return SymptomInsightsResponse{
+		Symptoms:   symptoms,
+		Months:     si.Months,
+		SampleSize: si.SampleSize,
 	}
 }
 
 // MoodPhaseDistribution is the result of GET /api/v1/insights/mood for a
-// single cycle phase — how often each mood was logged during it.
+// single cycle phase — how often (and what percentage of the time) each
+// mood was logged during it.
 type MoodPhaseDistribution struct {
-	Phase        Phase
-	MoodCounts   map[string]int
-	DominantMood string
-	SampleSize   int
+	Phase          Phase
+	MoodCounts     map[string]int
+	MoodPercentage map[string]float64
+	DominantMood   string
+	SampleSize     int
 }
 
 type MoodPhaseDistributionResponse struct {
-	Phase        string         `json:"phase"`
-	MoodCounts   map[string]int `json:"mood_counts"`
-	DominantMood string         `json:"dominant_mood,omitempty"`
-	SampleSize   int            `json:"sample_size"`
+	Phase          string             `json:"phase"`
+	MoodCounts     map[string]int     `json:"mood_counts"`
+	MoodPercentage map[string]float64 `json:"mood_percentage"`
+	DominantMood   string             `json:"dominant_mood,omitempty"`
+	SampleSize     int                `json:"sample_size"`
 }
 
 func (m MoodPhaseDistribution) ToResponse() MoodPhaseDistributionResponse {
 	return MoodPhaseDistributionResponse{
-		Phase:        string(m.Phase),
-		MoodCounts:   m.MoodCounts,
-		DominantMood: m.DominantMood,
-		SampleSize:   m.SampleSize,
+		Phase:          string(m.Phase),
+		MoodCounts:     m.MoodCounts,
+		MoodPercentage: m.MoodPercentage,
+		DominantMood:   m.DominantMood,
+		SampleSize:     m.SampleSize,
 	}
+}
+
+// MoodInsights is the full result of GET /api/v1/insights/mood, one entry
+// per cycle phase.
+type MoodInsights struct {
+	ByPhase []MoodPhaseDistribution
+	Months  int
+}
+
+type MoodInsightsResponse struct {
+	ByPhase []MoodPhaseDistributionResponse `json:"by_phase"`
+	Months  int                             `json:"months"`
+}
+
+func (mi MoodInsights) ToResponse() MoodInsightsResponse {
+	byPhase := make([]MoodPhaseDistributionResponse, len(mi.ByPhase))
+	for i, m := range mi.ByPhase {
+		byPhase[i] = m.ToResponse()
+	}
+	return MoodInsightsResponse{ByPhase: byPhase, Months: mi.Months}
 }
