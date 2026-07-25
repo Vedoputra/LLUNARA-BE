@@ -97,13 +97,14 @@ func newRouter(pool *pgxpool.Pool, jwks keyfunc.Keyfunc) http.Handler {
 	symptomHandler := handler.NewSymptomHandler(service.NewSymptomService(symptomRepo))
 
 	insightRepo := repository.NewInsightRepository(pool)
-	insightHandler := handler.NewInsightHandler(service.NewInsightService(cycleRepo, insightRepo))
+	insightService := service.NewInsightService(cycleRepo, insightRepo)
+	insightHandler := handler.NewInsightHandler(insightService)
 
 	wellnessRepo := repository.NewWellnessRepository(pool)
 	wellnessHandler := handler.NewWellnessHandler(service.NewWellnessService(wellnessRepo))
 
 	exportRepo := repository.NewExportRepository(pool)
-	exportHandler := handler.NewExportHandler(service.NewExportService(exportRepo, wellnessRepo, cycleRepo))
+	exportHandler := handler.NewExportHandler(service.NewExportService(exportRepo, wellnessRepo, cycleRepo, insightService))
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(middleware.Auth(jwks))

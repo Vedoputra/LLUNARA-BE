@@ -21,6 +21,23 @@ func (f *fakeExportRepo) ListDailyLogsForExport(context.Context, uuid.UUID, time
 	return f.rows, nil
 }
 
+type fakeSummaryProvider struct {
+	summary *model.CycleSummary
+}
+
+func newFakeSummaryProvider() *fakeSummaryProvider {
+	return &fakeSummaryProvider{summary: &model.CycleSummary{
+		HasSufficientData:  true,
+		AverageCycleLength: 28,
+		TotalCycles:        3,
+		Regularity:         model.RegularityRegular,
+	}}
+}
+
+func (f *fakeSummaryProvider) GetCycleSummary(context.Context, uuid.UUID) (*model.CycleSummary, error) {
+	return f.summary, nil
+}
+
 func parseCSV(t *testing.T, b []byte) [][]string {
 	t.Helper()
 	records, err := csv.NewReader(strings.NewReader(string(b))).ReadAll()
@@ -61,7 +78,7 @@ func TestGenerateCSV_HeaderAndBasicRow(t *testing.T) {
 			SymptomNames: []string{"kram", "sakit kepala"},
 		},
 	}}
-	svc := NewExportService(exportRepo, newFakeWellnessRepo(), newFakeCycleRepo())
+	svc := NewExportService(exportRepo, newFakeWellnessRepo(), newFakeCycleRepo(), newFakeSummaryProvider())
 
 	csvBytes, err := svc.GenerateCSV(context.Background(), testUUID, date(2026, 1, 1), date(2026, 1, 31))
 	if err != nil {
@@ -102,7 +119,7 @@ func TestGenerateCSV_MergesLogAndWellnessOnSameDay(t *testing.T) {
 	wellnessRepo.logs[wellnessKey(testUUID, date(2026, 1, 5))] = model.WellnessLog{
 		UserID: testUUID, Date: date(2026, 1, 5), WaterGlasses: &glasses,
 	}
-	svc := NewExportService(exportRepo, wellnessRepo, newFakeCycleRepo())
+	svc := NewExportService(exportRepo, wellnessRepo, newFakeCycleRepo(), newFakeSummaryProvider())
 
 	csvBytes, err := svc.GenerateCSV(context.Background(), testUUID, date(2026, 1, 1), date(2026, 1, 31))
 	if err != nil {
@@ -128,7 +145,7 @@ func TestGenerateCSV_WellnessOnlyDayStillGetsARow(t *testing.T) {
 	wellnessRepo.logs[wellnessKey(testUUID, date(2026, 1, 10))] = model.WellnessLog{
 		UserID: testUUID, Date: date(2026, 1, 10), WeightKg: &weight,
 	}
-	svc := NewExportService(exportRepo, wellnessRepo, newFakeCycleRepo())
+	svc := NewExportService(exportRepo, wellnessRepo, newFakeCycleRepo(), newFakeSummaryProvider())
 
 	csvBytes, err := svc.GenerateCSV(context.Background(), testUUID, date(2026, 1, 1), date(2026, 1, 31))
 	if err != nil {
@@ -148,7 +165,7 @@ func TestGenerateCSV_IncludesDayOfCycleAndPhaseWhenCycleKnown(t *testing.T) {
 	exportRepo := &fakeExportRepo{rows: []repository.DailyLogExportRow{
 		{ID: uuid.New(), Date: date(2026, 1, 1), Cycle: cycle}, // day 1 -> menstrual
 	}}
-	svc := NewExportService(exportRepo, newFakeWellnessRepo(), newFakeCycleRepo())
+	svc := NewExportService(exportRepo, newFakeWellnessRepo(), newFakeCycleRepo(), newFakeSummaryProvider())
 
 	csvBytes, err := svc.GenerateCSV(context.Background(), testUUID, date(2026, 1, 1), date(2026, 1, 31))
 	if err != nil {
@@ -163,3 +180,51 @@ func TestGenerateCSV_IncludesDayOfCycleAndPhaseWhenCycleKnown(t *testing.T) {
 		t.Errorf("phase = %q, want menstrual", dataRow[2])
 	}
 }
+
+func TestTopSymptoms_RanksByFrequencyAndRespectsLimit(t *testing.T) {
+	rows := []exportRow{
+		{symptoms: "kram; sakit kepala"},
+		{symptoms: "kram"},
+		{symptoms: "kram; mual"},
+		{symptoms: ""},
+	}
+
+	top := topSymptoms(rows, 2)
+	if len(top) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(top))
+	}
+	if top[0].name != "kram" || top[0].count != 3 {
+		t.Errorf("top[0] = %+v, want kram/3", top[0])
+	}
+}
+
+func TestGeneratePDF_ProducesNonEmptyPDF(t *testing.T) {
+	flow := "medium"
+	exportRepo := &fakeExportRepo{rows: []repository.DailyLogExportRow{
+		{ID: uuid.New(), Date: date(2026, 1, 1), FlowIntensity: &flow, SymptomNames: []string{"kram"}},
+	}}
+	cycleRepo := newFakeCycleRepo(model.Cycle{UserID: testUUID, StartDate: date(2026, 1, 1), CycleLength: intPtr(28), PeriodLength: intPtr(5)})
+	svc := NewExportService(exportRepo, newFakeWellnessRepo(), cycleRepo, newFakeSummaryProvider())
+
+	pdfBytes, err := svc.GeneratePDF(context.Background(), testUUID, date(2026, 1, 1), date(2026, 1, 31))
+	if err != nil {
+		t.Fatalf("GeneratePDF: %v", err)
+	}
+	if len(pdfBytes) < 100 {
+		t.Fatalf("expected a non-trivial PDF, got %d bytes", len(pdfBytes))
+	}
+	if string(pdfBytes[:4]) != "%PDF" {
+		t.Errorf("expected PDF magic header, got %q", pdfBytes[:4])
+	}
+}
+
+func TestGeneratePDF_RejectsInvalidRange(t *testing.T) {
+	svc := NewExportService(&fakeExportRepo{}, newFakeWellnessRepo(), newFakeCycleRepo(), newFakeSummaryProvider())
+
+	_, err := svc.GeneratePDF(context.Background(), testUUID, date(2026, 2, 1), date(2026, 1, 1))
+	if code := apiErrCode(t, err); code != "VALIDATION_ERROR" {
+		t.Errorf("code = %q, want VALIDATION_ERROR", code)
+	}
+}
+
+func intPtr(i int) *int { return &i }

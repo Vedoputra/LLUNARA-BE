@@ -57,8 +57,12 @@ func (h *ExportHandler) Export(w http.ResponseWriter, r *http.Request) {
 		writeAttachment(w, data, "text/csv", fmt.Sprintf("llunara-export-%s-to-%s.csv", from.Format(model.DateLayout), to.Format(model.DateLayout)))
 
 	case "pdf":
-		// Added in BE-6.3.
-		apierror.WriteError(w, apierror.ValidationError("Format pdf belum tersedia", nil))
+		data, err := h.service.GeneratePDF(r.Context(), userID, from, to)
+		if err != nil {
+			apierror.WriteError(w, err)
+			return
+		}
+		writeAttachment(w, data, "application/pdf", fmt.Sprintf("llunara-export-%s-to-%s.pdf", from.Format(model.DateLayout), to.Format(model.DateLayout)))
 	}
 }
 
