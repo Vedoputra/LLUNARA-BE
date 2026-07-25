@@ -111,6 +111,12 @@ func newRouter(pool *pgxpool.Pool, jwks keyfunc.Keyfunc, cfg *config.Config) htt
 	authAdminClient := supabaseadmin.NewClient(cfg.SupabaseURL, cfg.SupabaseSecretKey)
 	accountHandler := handler.NewAccountHandler(service.NewAccountService(accountRepo, authAdminClient))
 
+	reminderRepo := repository.NewReminderRepository(pool)
+	reminderHandler := handler.NewReminderHandler(service.NewReminderService(reminderRepo))
+
+	gardenRepo := repository.NewGardenRepository(pool)
+	gardenHandler := handler.NewGardenHandler(service.NewGardenService(gardenRepo))
+
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(middleware.Auth(jwks))
 
@@ -140,6 +146,12 @@ func newRouter(pool *pgxpool.Pool, jwks keyfunc.Keyfunc, cfg *config.Config) htt
 		r.Post("/export", exportHandler.Export)
 
 		r.Delete("/account", accountHandler.DeleteAccount)
+
+		r.Get("/reminders", reminderHandler.ListReminders)
+		r.Put("/reminders", reminderHandler.UpsertReminder)
+		r.Delete("/reminders/{id}", reminderHandler.DeleteReminder)
+
+		r.Get("/garden", gardenHandler.GetGarden)
 	})
 
 	return r
