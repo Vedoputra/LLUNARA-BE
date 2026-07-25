@@ -117,12 +117,17 @@ func (r *CycleRepository) GetLatest(ctx context.Context, userID uuid.UUID) (*mod
 	return c, nil
 }
 
-// FindOverlapping returns the cycle whose [start_date, end_date] span
-// contains startDate (an open cycle, end_date null, extends indefinitely),
-// or nil if none overlaps.
+// FindOverlapping returns the cycle whose span contains startDate, or nil
+// if none does. A cycle's span is [start_date, start_date+cycle_length) —
+// the day the next cycle actually started is the first day NOT in its
+// span. cycle_length, not end_date, is what marks a cycle as closed:
+// end_date is the (much narrower) recorded menstrual flow window, and is
+// often left unset even for a cycle that's long since been superseded by a
+// newer one. A cycle with no cycle_length yet (the current latest, still
+// open) has an unbounded span extending to the present.
 func (r *CycleRepository) FindOverlapping(ctx context.Context, userID uuid.UUID, startDate time.Time) (*model.Cycle, error) {
 	q := `select ` + cycleColumns + ` from cycles
-		where user_id = $1 and start_date <= $2 and (end_date is null or end_date >= $2)
+		where user_id = $1 and start_date <= $2 and (cycle_length is null or (start_date + cycle_length) > $2)
 		limit 1`
 
 	row := r.db.QueryRow(ctx, q, userID, startDate)

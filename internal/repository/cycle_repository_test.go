@@ -119,19 +119,20 @@ func TestCycleRepository_GetLatest(t *testing.T) {
 	}
 }
 
-func TestCycleRepository_FindOverlapping(t *testing.T) {
+func TestCycleRepository_FindOverlapping_BoundedByCycleLength(t *testing.T) {
 	skipIfNoDB(t)
 	repo := NewCycleRepository(testPool)
 	ctx := context.Background()
 
 	start := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
-	end := time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC)
-	created, err := repo.Create(ctx, model.Cycle{UserID: testUserID, StartDate: start, EndDate: &end})
+	length := 28
+	created, err := repo.Create(ctx, model.Cycle{UserID: testUserID, StartDate: start, CycleLength: &length})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	t.Cleanup(func() { _ = repo.Delete(context.Background(), testUserID, created.ID) })
 
+	// Day 3: well within the 28-day span.
 	overlapping, err := repo.FindOverlapping(ctx, testUserID, time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("FindOverlapping: %v", err)
@@ -140,12 +141,49 @@ func TestCycleRepository_FindOverlapping(t *testing.T) {
 		t.Errorf("expected to find overlapping cycle %v, got %v", created.ID, overlapping)
 	}
 
-	notOverlapping, err := repo.FindOverlapping(ctx, testUserID, time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC))
+	// Exactly start_date + cycle_length: this is where the NEXT cycle
+	// actually started, so it must NOT be considered part of this one —
+	// otherwise every legitimate next-cycle start would false-positive.
+	notOverlapping, err := repo.FindOverlapping(ctx, testUserID, start.AddDate(0, 0, length))
+	if err != nil {
+		t.Fatalf("FindOverlapping: %v", err)
+	}
+	if notOverlapping != nil {
+		t.Errorf("expected no overlap exactly at start_date+cycle_length, got %+v", notOverlapping)
+	}
+
+	// Far beyond the span entirely.
+	notOverlapping, err = repo.FindOverlapping(ctx, testUserID, time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("FindOverlapping: %v", err)
 	}
 	if notOverlapping != nil {
 		t.Errorf("expected no overlap, got %+v", notOverlapping)
+	}
+}
+
+func TestCycleRepository_FindOverlapping_OpenCycleHasNoBound(t *testing.T) {
+	skipIfNoDB(t)
+	repo := NewCycleRepository(testPool)
+	ctx := context.Background()
+
+	// A cycle with no cycle_length yet (the current latest, still open) —
+	// even an end_date this far in the past doesn't close it; only a new
+	// cycle starting does.
+	start := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 3, 5, 0, 0, 0, 0, time.UTC)
+	created, err := repo.Create(ctx, model.Cycle{UserID: testUserID, StartDate: start, EndDate: &end})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	t.Cleanup(func() { _ = repo.Delete(context.Background(), testUserID, created.ID) })
+
+	overlapping, err := repo.FindOverlapping(ctx, testUserID, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("FindOverlapping: %v", err)
+	}
+	if overlapping == nil || overlapping.ID != created.ID {
+		t.Errorf("expected the still-open cycle to be treated as unbounded, got %v", overlapping)
 	}
 }
 

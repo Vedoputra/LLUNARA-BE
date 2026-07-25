@@ -73,7 +73,13 @@ func (f *fakeCycleRepo) FindOverlapping(_ context.Context, userID uuid.UUID, sta
 		if c.UserID != userID {
 			continue
 		}
-		if !c.StartDate.After(startDate) && (c.EndDate == nil || !c.EndDate.Before(startDate)) {
+		if c.StartDate.After(startDate) {
+			continue
+		}
+		// Mirrors the SQL: bounded by cycle_length (the day the next cycle
+		// actually started), not end_date. No cycle_length yet means it's
+		// still the open latest cycle — unbounded.
+		if c.CycleLength == nil || startDate.Before(c.StartDate.AddDate(0, 0, *c.CycleLength)) {
 			cc := c
 			return &cc, nil
 		}
@@ -238,6 +244,33 @@ func TestStartCycle_ScopedToUser(t *testing.T) {
 	_, err := svc.StartCycle(context.Background(), userB, date(2026, 1, 1))
 	if err != nil {
 		t.Fatalf("expected user B's cycle to succeed independently of user A's data, got: %v", err)
+	}
+}
+
+// TestStartCycle_ThirdCycle_NotBlockedByOlderClosedCycleWithNoEndDate is a
+// regression test: an older (non-latest) cycle that was closed by a newer
+// one (cycle_length set) but never had EndCycle called on it (end_date
+// still null — the common case, since marking a period's end is a
+// separate, optional step) must NOT be treated as open-ended forever.
+// Starting cycle 3 well after cycle 2 began must succeed.
+func TestStartCycle_ThirdCycle_NotBlockedByOlderClosedCycleWithNoEndDate(t *testing.T) {
+	userID := uuid.New()
+	repo := newFakeCycleRepo(model.Cycle{ID: uuid.New(), UserID: userID, StartDate: date(2026, 1, 1)})
+	svc := NewCycleService(repo)
+	ctx := context.Background()
+
+	// Closes cycle 1 (cycle_length=28), end_date remains nil throughout —
+	// EndCycle is never called in this test, matching real usage where
+	// many users skip marking the period's end explicitly.
+	if _, err := svc.StartCycle(ctx, userID, date(2026, 1, 29)); err != nil {
+		t.Fatalf("start cycle 2: %v", err)
+	}
+
+	// Closes cycle 2, creates cycle 3. Before the fix, this incorrectly
+	// failed with CYCLE_OVERLAP against cycle 1, because FindOverlapping
+	// treated any cycle with a null end_date as extending forever.
+	if _, err := svc.StartCycle(ctx, userID, date(2026, 2, 26)); err != nil {
+		t.Fatalf("start cycle 3: expected success, got: %v", err)
 	}
 }
 

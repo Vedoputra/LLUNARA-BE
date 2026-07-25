@@ -184,6 +184,32 @@ func TestUpsertLog_NoCycleIDWhenNoMatch(t *testing.T) {
 	}
 }
 
+// TestUpsertLog_LinksCycleIDForOlderClosedCycle is a regression test for
+// the same underlying bug fixed in FindOverlapping: a log dated well past
+// an older, already-closed cycle's menstrual flow (end_date) but still
+// within its full cycle_length span must still resolve to that cycle —
+// UpsertLog reuses FindOverlapping to do this linking, so it inherited the
+// bug where such cycles were only ever matched during their few end_date
+// days instead of their whole ~28-day span.
+func TestUpsertLog_LinksCycleIDForOlderClosedCycle(t *testing.T) {
+	userID := uuid.New()
+	length := 28
+	older := model.Cycle{ID: uuid.New(), UserID: userID, StartDate: date(2026, 1, 1), CycleLength: &length}
+	latest := model.Cycle{ID: uuid.New(), UserID: userID, StartDate: date(2026, 1, 29)}
+	cycles := newFakeCycleRepo(older, latest)
+	svc := newTestDailyLogService(nil, cycles, nil)
+
+	// Day 20 of the older cycle — well past any plausible end_date, but
+	// still inside its 28-day span.
+	saved, err := svc.UpsertLog(context.Background(), userID, model.UpsertDailyLogRequest{Date: "2026-01-20"})
+	if err != nil {
+		t.Fatalf("UpsertLog: %v", err)
+	}
+	if saved.CycleID == nil || *saved.CycleID != older.ID {
+		t.Errorf("cycle_id = %v, want %v (the older cycle whose span covers day 20)", saved.CycleID, older.ID)
+	}
+}
+
 func TestUpsertLog_SuccessWithValidSymptoms(t *testing.T) {
 	presetSymptom := uuid.New()
 	userID := uuid.New()
