@@ -61,6 +61,27 @@ func (s *CycleService) ListCycles(ctx context.Context, userID uuid.UUID) ([]mode
 	return cycles, nil
 }
 
+// Fallbacks used until profile-level defaults exist — not part of any BE
+// task yet, and these match the profiles table's own column defaults
+// (default_cycle_length 28, default_period_length 5).
+const (
+	fallbackCycleLength  = 28
+	fallbackPeriodLength = 5
+)
+
+// GetPrediction runs the prediction algorithm against the user's cycle
+// history. Returns a low-confidence, mostly-nil prediction (not an error)
+// when the user has no cycles recorded yet.
+func (s *CycleService) GetPrediction(ctx context.Context, userID uuid.UUID) (*model.Prediction, error) {
+	cycles, err := s.repo.ListByUser(ctx, userID, 100)
+	if err != nil {
+		return nil, fmt.Errorf("list cycles: %w", err)
+	}
+
+	prediction := Predict(cycles, truncateToDate(time.Now().UTC()), fallbackCycleLength, fallbackPeriodLength)
+	return &prediction, nil
+}
+
 // StartCycle records a new period start date. If the user has a previous
 // cycle that hasn't been closed yet (its cycle_length is still unknown),
 // starting a new one is what closes it: its cycle_length becomes the gap to

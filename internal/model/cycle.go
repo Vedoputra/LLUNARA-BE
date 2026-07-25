@@ -54,6 +54,15 @@ type CycleResponse struct {
 	CreatedAt    string  `json:"created_at"`
 }
 
+// CycleWithPredictionResponse wraps a just-written cycle together with the
+// freshly recalculated prediction, per BE-4.3 — every cycle write response
+// includes the up-to-date prediction so the frontend can reschedule
+// notifications without a second round-trip.
+type CycleWithPredictionResponse struct {
+	Cycle      CycleResponse      `json:"cycle"`
+	Prediction PredictionResponse `json:"prediction"`
+}
+
 // ToResponse converts a domain Cycle into its API response shape.
 func (c Cycle) ToResponse() CycleResponse {
 	resp := CycleResponse{

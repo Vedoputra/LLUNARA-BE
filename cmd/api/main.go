@@ -103,6 +103,7 @@ func newRouter(pool *pgxpool.Pool, jwks keyfunc.Keyfunc) http.Handler {
 
 		r.Post("/cycles", cycleHandler.StartCycle)
 		r.Get("/cycles", cycleHandler.ListCycles)
+		r.Get("/cycles/prediction", cycleHandler.GetPrediction)
 		r.Patch("/cycles/{id}", cycleHandler.UpdateCycle)
 		r.Delete("/cycles/{id}", cycleHandler.DeleteCycle)
 

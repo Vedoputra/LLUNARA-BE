@@ -44,7 +44,19 @@ func (h *CycleHandler) StartCycle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeData(w, http.StatusCreated, cycle.ToResponse())
+	// The prediction is always computed fresh from current data (never
+	// cached), so recalculating here just means fetching it right after
+	// the write — per BE-4.3, every cycle write response includes it.
+	prediction, err := h.service.GetPrediction(r.Context(), userID)
+	if err != nil {
+		apierror.WriteError(w, err)
+		return
+	}
+
+	writeData(w, http.StatusCreated, model.CycleWithPredictionResponse{
+		Cycle:      cycle.ToResponse(),
+		Prediction: prediction.ToResponse(),
+	})
 }
 
 // UpdateCycle handles PATCH /api/v1/cycles/{id} — records when a period
@@ -80,7 +92,16 @@ func (h *CycleHandler) UpdateCycle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeData(w, http.StatusOK, cycle.ToResponse())
+	prediction, err := h.service.GetPrediction(r.Context(), userID)
+	if err != nil {
+		apierror.WriteError(w, err)
+		return
+	}
+
+	writeData(w, http.StatusOK, model.CycleWithPredictionResponse{
+		Cycle:      cycle.ToResponse(),
+		Prediction: prediction.ToResponse(),
+	})
 }
 
 // DeleteCycle handles DELETE /api/v1/cycles/{id}.
@@ -124,4 +145,23 @@ func (h *CycleHandler) ListCycles(w http.ResponseWriter, r *http.Request) {
 		responses[i] = c.ToResponse()
 	}
 	writeData(w, http.StatusOK, responses)
+}
+
+// GetPrediction handles GET /api/v1/cycles/prediction. Returns 200 with a
+// low-confidence, mostly-null prediction — not an error — when the user
+// has no cycles recorded yet.
+func (h *CycleHandler) GetPrediction(w http.ResponseWriter, r *http.Request) {
+	userID, err := middleware.GetUserID(r.Context())
+	if err != nil {
+		apierror.WriteError(w, apierror.Unauthorized(""))
+		return
+	}
+
+	prediction, err := h.service.GetPrediction(r.Context(), userID)
+	if err != nil {
+		apierror.WriteError(w, err)
+		return
+	}
+
+	writeData(w, http.StatusOK, prediction.ToResponse())
 }
